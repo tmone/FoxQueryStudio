@@ -5,11 +5,31 @@ import type { CellValue, ConnectionProfile, DbApi, ExecuteResult, ResultSet, Sch
 export type SqlDriver = Pick<typeof sqlTypes, 'ConnectionPool'>;
 type Pool = sqlTypes.ConnectionPool;
 
-const SCHEMA_QUERY = `
+export const SCHEMA_QUERY = `
 SELECT c.TABLE_SCHEMA, c.TABLE_NAME, t.TABLE_TYPE, c.COLUMN_NAME, c.DATA_TYPE, c.CHARACTER_MAXIMUM_LENGTH, c.IS_NULLABLE
 FROM INFORMATION_SCHEMA.COLUMNS c
 JOIN INFORMATION_SCHEMA.TABLES t ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME
 ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION`;
+
+/** Groups the rows of SCHEMA_QUERY into tables with their columns. */
+export function schemaFromRows(rows: Record<string, unknown>[]): SchemaTable[] {
+  const tables = new Map<string, SchemaTable>();
+  for (const row of rows) {
+    const key = `${row.TABLE_SCHEMA}.${row.TABLE_NAME}`;
+    let table = tables.get(key);
+    if (!table) {
+      table = { schema: String(row.TABLE_SCHEMA), name: String(row.TABLE_NAME), isView: row.TABLE_TYPE === 'VIEW', columns: [] };
+      tables.set(key, table);
+    }
+    table.columns.push({
+      name: String(row.COLUMN_NAME),
+      dataType: String(row.DATA_TYPE),
+      maxLength: row.CHARACTER_MAXIMUM_LENGTH as number | null,
+      nullable: row.IS_NULLABLE === 'YES',
+    });
+  }
+  return [...tables.values()];
+}
 
 const REQUEST_TIMEOUT_MS = 120_000;
 /** How long to wait for the driver to finish a request after it has reported an error. */
@@ -105,22 +125,7 @@ export function createDatabase(driver: SqlDriver, buildConfig: (profile: Connect
       const pool = await openPool(requireProfile());
       try {
         const { recordset } = await pool.request().query(SCHEMA_QUERY);
-        const tables = new Map<string, SchemaTable>();
-        for (const row of recordset) {
-          const key = `${row.TABLE_SCHEMA}.${row.TABLE_NAME}`;
-          let table = tables.get(key);
-          if (!table) {
-            table = { schema: row.TABLE_SCHEMA, name: row.TABLE_NAME, isView: row.TABLE_TYPE === 'VIEW', columns: [] };
-            tables.set(key, table);
-          }
-          table.columns.push({
-            name: row.COLUMN_NAME,
-            dataType: row.DATA_TYPE,
-            maxLength: row.CHARACTER_MAXIMUM_LENGTH,
-            nullable: row.IS_NULLABLE === 'YES',
-          });
-        }
-        return [...tables.values()];
+        return schemaFromRows(recordset);
       } finally {
         await pool.close();
       }

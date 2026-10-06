@@ -142,36 +142,71 @@ try {
   assert.equal(await page.isHidden('.compare'), true);
   ok('keeps untranslatable T-SQL unchanged and reports why');
 
-  // ---- Local FoxPro database ---------------------------------------------------------------
+  // ---- Local FoxPro database: no server connection, the app's own engine -----------------
   const fixtures = resolve('test/fixtures/northwind');
   if (existsSync(join(fixtures, 'customers.dbf'))) {
+    const messages = () => page.textContent('#pane-messages');
+    const visibleRows = () =>
+      page.$$eval('#pane-results .grid-row', (rows) => rows.map((row) => [...row.querySelectorAll('.grid-cell:not(.rownum)')].map((cell) => cell.textContent)));
+    /** Replaces the editor content and runs it with F5; resolves when the run has finished. */
+    const run = async (source) => {
+      await page.click('#editor');
+      await page.keyboard.press('Control+A');
+      await page.keyboard.insertText(source);
+      await page.evaluate(() => (document.getElementById('pane-messages').textContent = ''));
+      await page.keyboard.press('F5');
+      await page.waitForFunction(() => document.getElementById('pane-messages').textContent !== '', null, { timeout: 120_000 });
+      return messages();
+    };
+
+    assert.equal(await page.isDisabled('#btn-run'), true);
     await app.evaluate(({ dialog }, path) => (dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })), fixtures);
     await page.keyboard.press('Control+Shift+O');
-    await page.waitForSelector('#explorer-tree .local');
-    assert.match(await page.textContent('#explorer-tree .local > summary'), /^FoxPro cục bộ: northwind \(\d+ bảng\)$/);
-    assert.match(await page.textContent('#explorer-tree .local'), /Kết nối SQL Server để chạy truy vấn/);
-    assert.match(await page.textContent('#pane-messages'), /Đã mở .*northwind: \d+ bảng, \d+ dòng\./);
-    const customers = page.locator('#explorer-tree .local .table > summary', { hasText: /^customers \(\d+ dòng\)$/ });
-    await customers.click();
-    assert.match(await page.textContent('#explorer-tree .local'), /companyname nchar\(\d+\)/);
+    await page.waitForFunction(() => /Đã mở|Không mở được/.test(document.getElementById('pane-messages').textContent), null, { timeout: 180_000 });
+    assert.match(await messages(), /Đã mở .*northwind: 11 bảng, 3308 dòng\./);
+    assert.match(await page.textContent('#explorer-tree .server > summary'), /^FoxPro cục bộ \(.*northwind\)$/);
+    assert.equal(await page.textContent('#explorer-tree .group > summary'), 'Bảng (11)');
+    assert.match(await page.textContent('#status-state'), /Đã kết nối/);
+    assert.match(await page.textContent('#connection-status'), /^FoxPro cục bộ: .*northwind$/);
+    assert.equal(await page.isDisabled('#btn-run'), false);
+    ok('opens a folder of .dbf files with no server connection');
 
-    // FoxPro reads a local table by name, T-SQL as the #temp table it is loaded into.
+    // FoxPro: "Ger" matches Germany, because FoxPro compares up to the shorter string.
     await page.keyboard.press('Control+N');
-    await page.keyboard.insertText('SELECT * FROM ');
-    await customers.dblclick();
-    await page.waitForFunction(() => /FROM customers$/.test(document.querySelector('.monaco-editor .view-lines').innerText.replace(/ /g, ' ').trim()));
+    assert.equal(await language(), 'FOX-SQL');
+    let text = await run('SELECT ALLTRIM(customerid) AS ma, ALLTRIM(country) AS nuoc FROM customers WHERE country = "Ger" ORDER BY 1 INTO CURSOR duc');
+    assert.doesNotMatch(text, /Lỗi/);
+    text = await run('SELECT COUNT(*) AS n FROM duc');
+    assert.match(text, /Bảng 1: 1 dòng/);
+    assert.deepEqual(await visibleRows(), [['11']]);
+    assert.equal(await page.textContent('#status-cursor'), 'Cursor: duc');
+    assert.equal(await page.textContent('#query-state'), 'Truy vấn chạy xong');
+    text = await run('SELECT TOP 3 ma, nuoc FROM duc ORDER BY ma');
+    assert.deepEqual(await visibleRows(), [['ALFKI', 'Germany'], ['BLAUS', 'Germany'], ['DRACD', 'Germany']]);
+    ok('runs FoxPro source on the local tables and keeps its cursor between runs');
+    await page.screenshot({ path: OUT_DIR + '/smoke-local-fox.png' });
+
+    // T-SQL in another tab, on the same tables.
+    await page.keyboard.press('Control+N');
     await page.keyboard.press('Control+Shift+L');
     assert.equal(await language(), 'T-SQL');
-    assert.match(await editorText(), /FROM #customers/);
-    await page.keyboard.press('Control+W');
+    text = await run("SELECT COUNT(*) AS n FROM dbo.orders WHERE orderdate >= '1997-01-01'");
+    assert.match(text, /Bảng 1: 1 dòng/);
+    assert.deepEqual(await visibleRows(), [['678']]);
+    await page.click('.output-tabs > button[data-pane=tsql]');
+    assert.equal(await page.textContent('#pane-tsql'), 'SELECT COUNT(*) AS n FROM orders WHERE orderdate >= {^1997-01-01}');
+    text = await run('SELECT * FROM khong_co_bang');
+    assert.match(text, /Lỗi máy chủ: .*khong_co_bang/);
+    assert.equal(await page.textContent('#query-state'), 'Truy vấn có lỗi');
+    ok('runs T-SQL on the same tables and shows its FoxPro form');
+    await page.screenshot({ path: OUT_DIR + '/smoke-local-tsql.png' });
 
-    await page.fill('#explorer-filter', 'order');
-    assert.match(await page.textContent('#explorer-tree .local > summary'), /\(2 bảng\)$/);
-    await page.fill('#explorer-filter', '');
-    await page.screenshot({ path: `${OUT_DIR}/smoke-local.png` });
-    await clickMenu(3, 'Đóng CSDL FoxPro cục bộ');
-    await page.waitForSelector('#explorer-tree .local', { state: 'detached' });
-    ok('opens a local FoxPro database, lists its tables and names them per language');
+    await page.keyboard.press('Control+W');
+    await page.keyboard.press('Control+W');
+    await page.click('#btn-disconnect');
+    await page.waitForFunction(() => document.getElementById('status-state').textContent === 'Chưa kết nối');
+    assert.equal(await page.isDisabled('#btn-run'), true);
+    ok('closes the local database with Disconnect');
   } else {
     console.log('skip local FoxPro database (run `npm run fixtures`)');
   }

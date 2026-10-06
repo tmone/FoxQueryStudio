@@ -14,8 +14,6 @@ const api: DbApi = {
 
 const localDb: LocalDbApi = {
   open: () => ipcRenderer.invoke('local:open'),
-  close: () => ipcRenderer.invoke('local:close'),
-  load: (sessionId, tableNames) => ipcRenderer.invoke('local:load', sessionId, tableNames),
 };
 
 const updates: UpdateApi = {

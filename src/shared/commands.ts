@@ -9,7 +9,6 @@ export type AppCommand =
   | 'connection.disconnect'
   | 'connection.refresh'
   | 'local.open'
-  | 'local.close'
   | 'query.run'
   | 'query.switchLanguage'
   | 'view.explorer'
@@ -37,7 +36,6 @@ export const COMMANDS: Record<AppCommand, CommandInfo> = {
   'connection.disconnect': { label: 'Ngắt kết nối' },
   'connection.refresh': { label: 'Làm mới danh sách đối tượng', shortcut: 'Ctrl+Shift+R' },
   'local.open': { label: 'Mở CSDL FoxPro cục bộ…', shortcut: 'Ctrl+Shift+O' },
-  'local.close': { label: 'Đóng CSDL FoxPro cục bộ' },
   'query.run': { label: 'Chạy', shortcut: 'F5' },
   'query.switchLanguage': { label: 'Đổi ngôn ngữ FOX-SQL / T-SQL', shortcut: 'Ctrl+Shift+L' },
   'view.explorer': { label: 'Cây đối tượng', shortcut: 'F8' },
@@ -57,7 +55,7 @@ export const MENUS: { label: string; items: MenuEntry[] }[] = [
   { label: '&Tệp', items: ['file.new', 'file.open', '-', 'file.save', 'file.saveAs', '-', 'file.closeTab', '-', 'role:quit'] },
   { label: '&Sửa', items: ['role:undo', 'role:redo', '-', 'role:cut', 'role:copy', 'role:paste', 'role:selectAll'] },
   { label: '&Xem', items: ['view.explorer', 'view.output', '-', 'view.results', 'view.messages', 'view.tsql', 'view.compare', '-', 'role:zoomIn', 'role:zoomOut', 'role:resetZoom', 'role:togglefullscreen'] },
-  { label: '&Kết nối', items: ['connection.connect', 'connection.disconnect', '-', 'connection.refresh', '-', 'local.open', 'local.close'] },
+  { label: '&Kết nối', items: ['connection.connect', 'connection.disconnect', '-', 'connection.refresh', '-', 'local.open'] },
   { label: 'Truy &vấn', items: ['query.run', '-', 'query.switchLanguage'] },
   { label: 'Trợ &giúp', items: ['help.checkUpdates', '-', 'help.about'] },
 ];

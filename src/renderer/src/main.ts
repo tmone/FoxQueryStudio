@@ -3,7 +3,6 @@ import { convertFoxPro, type Diagnostic } from '../../converter';
 import { convertTsql } from '../../converter/reverse';
 import { columnKindResolver, columnWidthResolver } from '../../shared/column-kind';
 import { commandForShortcut, shortcutOf, type AppCommand } from '../../shared/commands';
-import { referencedTables, tempTableName, type LocalDatabase, type LocalTable } from '../../shared/local-db';
 import { runFoxQuery, runTsqlQuery } from '../../shared/run-query';
 import type { ConnectionProfile, ExecuteResult, SchemaTable } from '../../shared/types';
 import { updateActionLabel, type UpdateStatus } from '../../shared/update';
@@ -18,6 +17,7 @@ const MARKER_OWNER = 'foxpro';
 const MIN_EXPLORER_WIDTH = 160;
 const MIN_OUTPUT_HEIGHT = 80;
 const COMPARE_DELAY_MS = 250;
+const LOCAL_SERVER = 'FoxPro cục bộ';
 
 /** The language a tab is written in; the other one is always derived from it. */
 type QueryLanguage = 'foxpro' | 'tsql';
@@ -38,8 +38,6 @@ interface Tab {
   model: monaco.editor.ITextModel;
   cursors: string[];
   currentCursor?: string;
-  /** Local FoxPro tables already copied into this tab's server session. */
-  localLoaded: Set<string>;
   result?: ExecuteResult;
   messages: string;
   /** The last run's source in the other language. */
@@ -97,8 +95,6 @@ let connection: ExplorerConnection | undefined;
 let running = false;
 let resolveColumnKind = columnKindResolver([]);
 let resolveColumnWidth = columnWidthResolver([]);
-let schemaTables: SchemaTable[] = [];
-let localDb: LocalDatabase | undefined;
 
 const insertIntoEditor = (text: string) => {
   editor.trigger('explorer', 'type', { text });
@@ -112,12 +108,6 @@ const explorer = createExplorer(el('explorer-tree'), {
     void run();
   },
   refresh: () => void refreshSchema(),
-  localName,
-  previewLocal: (table) => {
-    newTab(`SELECT TOP ${PREVIEW_ROWS} * FROM ${localName(table)} ORDER BY 1`);
-    void run();
-  },
-  closeLocal: () => void closeLocal(),
 });
 
 // ---------- Status bar ----------
@@ -125,7 +115,7 @@ const explorer = createExplorer(el('explorer-tree'), {
 function renderStatus(): void {
   statusBar.classList.toggle('connected', connection !== undefined);
   statusState.textContent = connection ? 'Đã kết nối' : 'Chưa kết nối';
-  connectionStatus.textContent = connection ? `${connection.user} @ ${connection.server} / ${connection.database}` : '';
+  connectionStatus.textContent = !connection ? '' : connection.localPath ? `FoxPro cục bộ: ${connection.localPath}` : `${connection.user} @ ${connection.server} / ${connection.database}`;
   statusCursor.textContent = active.currentCursor ? `Cursor: ${active.currentCursor}` : '';
 
   const result = active.result;
@@ -196,7 +186,6 @@ function newTab(text = '', filePath?: string, language: QueryLanguage = filePath
     language,
     model: createModel(text, LANGUAGES[language].monacoId),
     cursors: [],
-    localLoaded: new Set(),
     messages: '',
     translation: '',
     activeSet: 0,
@@ -322,28 +311,6 @@ async function run(): Promise<void> {
     running = true;
     renderStatus();
   };
-  const report = (message: string) => {
-    tab.messages = message;
-    tab.pane = 'messages';
-    tab.hasOutput = true;
-    if (tab === active) renderOutput();
-  };
-
-  // Local FoxPro tables the query reads are copied into the tab's session on first use.
-  const missing = localDb ? referencedTables(source, localDb.tables).filter((name) => !tab.localLoaded.has(name)) : [];
-  if (missing.length) {
-    onExecute();
-    try {
-      await window.localDb.load(tab.id, missing);
-      for (const name of missing) tab.localLoaded.add(name);
-    } catch (e) {
-      report(ipcErrorMessage(e));
-      return;
-    } finally {
-      running = false;
-      renderStatus();
-    }
-  }
 
   let result: ExecuteResult | undefined;
   let errors: Diagnostic[] = [];
@@ -351,11 +318,7 @@ async function run(): Promise<void> {
   const lines: string[] = [];
   try {
     if (tab.language === 'foxpro') {
-      // To the converter a local table is a cursor that already exists; it is not one of the tab's own.
-      const session = { id: tab.id, cursors: knownCursors(tab), currentCursor: tab.currentCursor };
-      const outcome = await runFoxQuery(executeOnServer, session, source, { maxRows: MAX_ROWS, resolveColumnKind, onExecute });
-      tab.cursors = session.cursors.filter((name) => !isLocalTable(name));
-      tab.currentCursor = session.currentCursor;
+      const outcome = await runFoxQuery(executeOnServer, tab, source, { maxRows: MAX_ROWS, resolveColumnKind, onExecute });
       result = outcome.result;
       errors = shift(outcome.conversion.errors);
       warnings = shift(outcome.conversion.warnings);
@@ -374,7 +337,6 @@ async function run(): Promise<void> {
   }
   setMarkers(tab, errors, warnings);
 
-  if (result?.sessionReset) tab.localLoaded.clear();
   tab.activeSet = 0;
   tab.result = result;
   tab.hasOutput = true;
@@ -386,7 +348,7 @@ async function run(): Promise<void> {
     lines.push(...result.messages);
     if (result.error) {
       lines.push(`Lỗi máy chủ: ${result.error}`);
-      if (result.sessionReset) lines.push('Phiên làm việc đã được mở lại sau lỗi, các cursor trước đó không còn; bảng cục bộ sẽ được nạp lại khi cần.');
+      if (result.sessionReset) lines.push('Phiên làm việc đã được mở lại sau lỗi, các cursor trước đó không còn.');
     } else {
       result.resultSets.forEach((set, i) => lines.push(`Bảng ${i + 1}: ${set.rows.length} dòng`));
       if (!result.resultSets.length) lines.push('Lệnh đã chạy xong, không trả về bảng kết quả.');
@@ -404,53 +366,6 @@ async function run(): Promise<void> {
   }
 }
 
-// ---------- Local FoxPro database ----------
-
-const isLocalTable = (name: string) => localDb?.tables.some((t) => t.name === name) ?? false;
-const knownCursors = (tab: Tab) => [...tab.cursors, ...(localDb?.tables.map((t) => t.name) ?? [])];
-
-/** How the active tab names a local table: FoxPro reads it by name, T-SQL as the #temp table it is. */
-function localName(table: LocalTable): string {
-  return active.language === 'tsql' ? tempTableName(table.name) : table.name;
-}
-
-function applyLocalDatabase(next: LocalDatabase | undefined): void {
-  localDb = next;
-  // Earlier copies belong to another database, or to none.
-  for (const tab of tabs) tab.localLoaded.clear();
-  resolveColumnKind = columnKindResolver(schemaTables, next?.tables);
-  resolveColumnWidth = columnWidthResolver(schemaTables, next?.tables);
-  explorer.setLocal(next);
-  explorer.setCursors(active.cursors, active.currentCursor);
-  renderCompare();
-}
-
-async function openLocal(): Promise<void> {
-  let opened: LocalDatabase | undefined;
-  try {
-    opened = await window.localDb.open();
-  } catch (e) {
-    active.messages = `Không mở được CSDL FoxPro: ${ipcErrorMessage(e)}`;
-    showOutput('messages');
-    return;
-  }
-  if (!opened) return;
-  applyLocalDatabase(opened);
-  const rows = opened.tables.reduce((sum, t) => sum + t.rowCount, 0);
-  active.messages = [
-    `Đã mở ${opened.path}: ${opened.tables.length} bảng, ${rows} dòng.`,
-    'FOX-SQL đọc bảng theo tên (customers); T-SQL đọc theo tên bảng tạm (#customers).',
-    ...opened.skipped.map((reason) => `Lưu ý: ${reason}`),
-  ].join('\n');
-  showOutput('messages');
-}
-
-async function closeLocal(): Promise<void> {
-  if (!localDb) return;
-  await window.localDb.close();
-  applyLocalDatabase(undefined);
-}
-
 // ---------- Translation ----------
 
 interface Translation {
@@ -462,7 +377,7 @@ interface Translation {
 /** The tab's source in the other language, without running anything. */
 function translate(tab: Tab, source: string): Translation {
   if (tab.language === 'foxpro') {
-    const { sql, errors, warnings } = convertFoxPro(source, { knownCursors: knownCursors(tab), currentCursor: tab.currentCursor, resolveColumnKind });
+    const { sql, errors, warnings } = convertFoxPro(source, { knownCursors: tab.cursors, currentCursor: tab.currentCursor, resolveColumnKind });
     return { text: sql, errors, warnings };
   }
   const { foxpro, errors, warnings } = convertTsql(source, { resolveColumnKind, resolveColumnWidth });
@@ -568,16 +483,14 @@ function forgetCursors(): void {
   for (const tab of tabs) {
     tab.cursors = [];
     tab.currentCursor = undefined;
-    tab.localLoaded.clear();
   }
 }
 
 function applySchema(next: ExplorerConnection | undefined, tables: SchemaTable[]): void {
   connection = next;
-  schemaTables = tables;
   setSchema(tables);
-  resolveColumnKind = columnKindResolver(tables, localDb?.tables);
-  resolveColumnWidth = columnWidthResolver(tables, localDb?.tables);
+  resolveColumnKind = columnKindResolver(tables);
+  resolveColumnWidth = columnWidthResolver(tables);
   renderCompare();
   explorer.setConnection(next, tables);
   explorer.setCursors(active.cursors, active.currentCursor);
@@ -610,6 +523,33 @@ async function submitConnection(event: SubmitEvent): Promise<void> {
     connectError.hidden = false;
   } finally {
     connectSubmit.disabled = false;
+  }
+}
+
+/** Opens a folder of .dbf files in the app's own engine; from then on it is the connection. */
+async function openLocal(): Promise<void> {
+  if (running) return;
+  const tab = active;
+  const report = (message: string) => {
+    tab.messages = message;
+    tab.pane = 'messages';
+    tab.hasOutput = true;
+    if (tab === active) renderOutput();
+  };
+  running = true;
+  renderStatus();
+  try {
+    const opened = await window.localDb.open();
+    if (!opened) return;
+    const tables = await window.db.loadSchema();
+    forgetCursors();
+    applySchema({ server: LOCAL_SERVER, user: '', database: opened.name, localPath: opened.path }, tables);
+    report([`Đã mở ${opened.path}: ${opened.tableCount} bảng, ${opened.rowCount} dòng.`, ...opened.notes.map((note) => `Lưu ý: ${note}`)].join('\n'));
+  } catch (e) {
+    report(`Không mở được CSDL FoxPro: ${ipcErrorMessage(e)}`);
+  } finally {
+    running = false;
+    renderStatus();
   }
 }
 
@@ -686,7 +626,6 @@ const HANDLERS: Record<AppCommand, () => void> = {
   'connection.disconnect': () => void disconnect(),
   'connection.refresh': () => void refreshSchema(),
   'local.open': () => void openLocal(),
-  'local.close': () => void closeLocal(),
   'query.run': () => void run(),
   'query.switchLanguage': switchLanguage,
   'view.compare': toggleCompare,
