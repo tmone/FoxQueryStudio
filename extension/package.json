@@ -6,40 +6,105 @@
   "publisher": "surehcs",
   "private": true,
   "license": "UNLICENSED",
-  "engines": { "vscode": "^1.105.0" },
-  "categories": ["Programming Languages", "Other"],
+  "engines": {
+    "vscode": "^1.105.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
   "main": "./dist/extension.js",
-  "extensionDependencies": ["ms-mssql.mssql"],
-  "activationEvents": ["onLanguage:foxsql"],
+  "extensionDependencies": [
+    "ms-mssql.mssql"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
     "languages": [
       {
         "id": "foxsql",
-        "aliases": ["FoxPro SQL", "FOX-SQL"],
-        "extensions": [".fox", ".fsql"],
+        "aliases": [
+          "FoxPro SQL",
+          "FOX-SQL"
+        ],
+        "extensions": [
+          ".fox",
+          ".fsql"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
-      { "language": "foxsql", "scopeName": "source.foxsql", "path": "./syntaxes/foxsql.tmLanguage.json" }
+      {
+        "language": "foxsql",
+        "scopeName": "source.foxsql",
+        "path": "./syntaxes/foxsql.tmLanguage.json"
+      }
     ],
     "commands": [
-      { "command": "foxquery.run", "title": "Chạy truy vấn FoxPro", "category": "FoxQuery", "icon": "$(play)" },
-      { "command": "foxquery.showTsql", "title": "Hiện T-SQL đã dịch", "category": "FoxQuery", "icon": "$(split-horizontal)" },
-      { "command": "foxquery.newQuery", "title": "Truy vấn FoxPro mới", "category": "FoxQuery" }
+      {
+        "command": "foxquery.run",
+        "title": "Chạy truy vấn FoxPro",
+        "category": "FoxQuery",
+        "icon": "$(play)"
+      },
+      {
+        "command": "foxquery.showTsql",
+        "title": "Hiện T-SQL đã dịch",
+        "category": "FoxQuery",
+        "icon": "$(split-horizontal)"
+      },
+      {
+        "command": "foxquery.newQuery",
+        "title": "Truy vấn FoxPro mới",
+        "category": "FoxQuery"
+      },
+      {
+        "command": "foxquery.applyLayout",
+        "title": "Thu gọn giao diện kiểu SSMS",
+        "category": "FoxQuery"
+      },
+      {
+        "command": "foxquery.restoreLayout",
+        "title": "Khôi phục bố cục mặc định",
+        "category": "FoxQuery"
+      }
     ],
     "keybindings": [
-      { "command": "foxquery.run", "key": "f5", "when": "editorLangId == foxsql && editorTextFocus" },
-      { "command": "foxquery.showTsql", "key": "ctrl+shift+t", "when": "editorLangId == foxsql && editorTextFocus" }
+      {
+        "command": "foxquery.run",
+        "key": "f5",
+        "when": "editorLangId == foxsql && editorTextFocus"
+      },
+      {
+        "command": "foxquery.showTsql",
+        "key": "ctrl+shift+t",
+        "when": "editorLangId == foxsql && editorTextFocus"
+      }
     ],
     "menus": {
       "editor/title": [
-        { "command": "foxquery.run", "group": "navigation@1", "when": "editorLangId == foxsql" },
-        { "command": "foxquery.showTsql", "group": "navigation@2", "when": "editorLangId == foxsql" }
+        {
+          "command": "foxquery.run",
+          "group": "navigation@1",
+          "when": "editorLangId == foxsql"
+        },
+        {
+          "command": "foxquery.showTsql",
+          "group": "navigation@2",
+          "when": "editorLangId == foxsql"
+        }
       ],
       "commandPalette": [
-        { "command": "foxquery.run", "when": "editorLangId == foxsql" },
-        { "command": "foxquery.showTsql", "when": "editorLangId == foxsql" }
+        {
+          "command": "foxquery.run",
+          "when": "editorLangId == foxsql"
+        },
+        {
+          "command": "foxquery.showTsql",
+          "when": "editorLangId == foxsql"
+        }
       ]
     }
   },

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { convertFoxPro, type ConvertResult } from '../../src/converter';
+import { applyLeanLayout, applyLeanLayoutOnce, restoreDefaultLayout } from './layout';
 
 const FOXSQL = 'foxsql';
 const DIAGNOSTICS_SOURCE = 'FoxQuery';
@@ -46,6 +47,19 @@ async function pairedDocument(foxDoc: vscode.TextDocument): Promise<QueryState> 
   return state;
 }
 
+/** Shows the T-SQL twin in a group under the FoxPro editor, creating that group on first use. */
+async function showBelow(doc: vscode.TextDocument, focus: boolean): Promise<void> {
+  const open = vscode.window.visibleTextEditors.find((ed) => ed.document === doc);
+  if (open) {
+    await vscode.window.showTextDocument(doc, { viewColumn: open.viewColumn, preserveFocus: !focus, preview: false });
+    return;
+  }
+  await vscode.commands.executeCommand('workbench.action.splitEditorDown');
+  await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Active, preserveFocus: !focus, preview: false });
+  // splitEditorDown duplicates the FoxPro editor into the new group; drop that copy.
+  await vscode.commands.executeCommand('workbench.action.closeOtherEditors');
+}
+
 async function replaceText(doc: vscode.TextDocument, text: string): Promise<void> {
   const edit = new vscode.WorkspaceEdit();
   const whole = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
@@ -71,7 +85,7 @@ async function convertToSide(foxDoc: vscode.TextDocument, focusTsql: boolean): P
     return undefined;
   }
   await replaceText(state.tsqlDoc, conversion.sql);
-  await vscode.window.showTextDocument(state.tsqlDoc, { viewColumn: vscode.ViewColumn.Beside, preserveFocus: !focusTsql, preview: false });
+  await showBelow(state.tsqlDoc, focusTsql);
   return { state, conversion };
 }
 
@@ -107,11 +121,14 @@ async function newQuery(): Promise<void> {
 export function activate(context: vscode.ExtensionContext): void {
   if (vscode.window.activeTextEditor?.document.languageId === FOXSQL) lastFoxDoc = vscode.window.activeTextEditor.document;
   diagnostics = vscode.languages.createDiagnosticCollection(DIAGNOSTICS_SOURCE);
+  void applyLeanLayoutOnce(context);
   context.subscriptions.push(
     diagnostics,
     vscode.commands.registerCommand('foxquery.run', runQuery),
     vscode.commands.registerCommand('foxquery.showTsql', showTsql),
     vscode.commands.registerCommand('foxquery.newQuery', newQuery),
+    vscode.commands.registerCommand('foxquery.applyLayout', applyLeanLayout),
+    vscode.commands.registerCommand('foxquery.restoreLayout', restoreDefaultLayout),
     // Live conversion feedback while typing, without touching the twin.
     vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.document.languageId !== FOXSQL) return;

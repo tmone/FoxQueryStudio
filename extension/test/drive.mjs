@@ -12,6 +12,8 @@ mkdirSync(OUT, { recursive: true });
 const password = process.env.FQS_E2E_PASSWORD;
 if (!password) throw new Error('set FQS_E2E_PASSWORD');
 
+// Each run starts as a first run: no remembered layout, panels or editors.
+import('node:fs').then(({ rmSync }) => { for (const dir of ['workspaceStorage']) rmSync(`${ROOT}/user-data/User/${dir}`, { recursive: true, force: true }); });
 const { ELECTRON_RUN_AS_NODE: _x, ...env } = process.env;
 const app = await electron.launch({
   executablePath: EXE,
@@ -51,18 +53,29 @@ try {
     null,
     { timeout: 600_000 },
   );
+  // The download indicator can appear a moment after startup; require a quiet status bar for a while.
+  for (let quiet = 0; quiet < 5; quiet++) {
+    await page.waitForTimeout(1000);
+    if (await page.locator('.statusbar-item', { hasText: /Downloading|Activating|Installing/ }).count()) { quiet = -1; }
+  }
+  // Apply the lean layout explicitly, since the profile may already remember a first run.
+  await page.keyboard.press('F1');
+  await page.keyboard.type('FoxQuery: Thu gọn');
+  await page.waitForTimeout(800);
+  await page.keyboard.press('Enter');
   await page.waitForTimeout(3000);
   await shot(page, 'vsc-01-open');
+  const sidebarTitle = await page.textContent('.part.sidebar .composite.title h2').catch(() => '(no sidebar)');
+  log(`sidebar: ${sidebarTitle?.trim()} | activity bar visible: ${await page.isVisible('.part.activitybar')} | breadcrumbs: ${await page.isVisible('.breadcrumbs-control')}`);
   log(`status language: ${(await page.textContent('.statusbar-item[id="status.editor.mode"]').catch(() => ''))?.trim()}`);
 
   // mssql may open its welcome pages on first activation; close them and go back to the FoxPro file.
   await page.keyboard.press('Escape');
   // The debug side bar opened by the stray first F5 covers the editor; hide it.
-  await page.keyboard.press('Control+B');
   for (const button of await page.$$('.notification-list-item-toolbar-container .codicon-notifications-clear')) await button.click().catch(() => undefined);
   await page.locator('.tabs-container .tab', { hasText: 'luong' }).first().click();
   await page.waitForTimeout(1000);
-  await page.click('.editor-group-container.active .monaco-editor .view-lines');
+  await page.locator('.editor-group-container.active .monaco-editor .view-lines').first().click({ force: true });
   await page.keyboard.press('F5');
   log('F5 pressed');
   await page.waitForTimeout(4000);
@@ -96,7 +109,8 @@ try {
   // ---- Cursors across two separate runs on the same tab -----------------------------------
   async function runFox(source, label) {
     await page.locator('.tabs-container .tab', { hasText: 'luong' }).first().click();
-    await page.click('.editor-group-container.active .monaco-editor .view-lines');
+    await page.waitForTimeout(500);
+    await page.locator('.editor-group-container.active .monaco-editor .view-lines').first().click({ force: true });
     await page.keyboard.press('Control+A');
     await page.keyboard.insertText(source);
     await page.waitForTimeout(500);
