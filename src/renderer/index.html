@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; font-src 'self' data:; img-src 'self' data:"
+    />
+    <title>FoxQuery Studio</title>
+  </head>
+  <body>
+    <header class="toolbar" role="toolbar" aria-label="Thanh công cụ">
+      <button id="btn-new" type="button" data-command="file.new">Truy vấn mới</button>
+      <button id="btn-open" type="button" data-command="file.open">Mở</button>
+      <button id="btn-save" type="button" data-command="file.save">Lưu</button>
+      <span class="divider"></span>
+      <button id="btn-connect" type="button" data-command="connection.connect">Kết nối</button>
+      <button id="btn-disconnect" type="button" data-command="connection.disconnect" disabled>Ngắt kết nối</button>
+      <span class="divider"></span>
+      <button id="btn-run" type="button" class="primary" data-command="query.run" disabled>▶ Chạy</button>
+      <span class="divider"></span>
+      <button id="btn-toggle-explorer" type="button" data-command="view.explorer" aria-pressed="true">Cây đối tượng</button>
+      <button id="btn-toggle-output" type="button" data-command="view.output" aria-pressed="true">Khung kết quả</button>
+      <span class="spacer"></span>
+      <button id="btn-update" type="button" class="primary" hidden></button>
+    </header>
+
+    <main class="workspace">
+      <aside class="explorer">
+        <div class="pane-title">Cây đối tượng</div>
+        <input id="explorer-filter" type="search" placeholder="Lọc bảng và view theo tên" aria-label="Lọc bảng và view" />
+        <div id="explorer-tree" class="tree"></div>
+      </aside>
+      <div id="split-explorer" class="splitter vertical" role="separator" aria-orientation="vertical"></div>
+
+      <section class="center">
+        <div id="tabs" class="tabs" role="tablist"></div>
+        <div id="editor" class="editor"></div>
+        <div id="split-output" class="splitter horizontal" role="separator" aria-orientation="horizontal"></div>
+        <div class="output">
+          <div class="output-tabs">
+            <button type="button" data-pane="results" class="active">Kết quả</button>
+            <button type="button" data-pane="messages">Thông báo</button>
+            <button type="button" data-pane="tsql">T-SQL đã dịch</button>
+            <span id="result-sets" class="result-sets"></span>
+          </div>
+          <div id="pane-results" class="pane"></div>
+          <pre id="pane-messages" class="pane text" hidden></pre>
+          <pre id="pane-tsql" class="pane text" hidden></pre>
+        </div>
+      </section>
+    </main>
+
+    <footer id="statusbar" class="statusbar" role="status">
+      <span id="status-state">Chưa kết nối</span>
+      <span id="connection-status"></span>
+      <span class="spacer"></span>
+      <span id="status-cursor" title="Cursor đang chọn của tab"></span>
+      <span id="status-rows"></span>
+      <span id="run-status"></span>
+      <span id="status-position"></span>
+      <button id="app-version" type="button" class="version" title="Kiểm tra cập nhật"></button>
+    </footer>
+
+    <dialog id="connect-dialog">
+      <form id="connect-form" method="dialog">
+        <h2>Kết nối SQL Server</h2>
+        <label>Máy chủ <input name="server" required placeholder="host hoặc host\instance" /></label>
+        <label>Cổng <input name="port" type="number" min="1" max="65535" placeholder="1433" /></label>
+        <label>Cơ sở dữ liệu <input name="database" required /></label>
+        <label>Tài khoản <input name="user" required autocomplete="username" /></label>
+        <label>Mật khẩu <input name="password" type="password" required autocomplete="current-password" /></label>
+        <label class="check"><input name="encrypt" type="checkbox" checked /> Mã hóa kết nối</label>
+        <label class="check"><input name="trust" type="checkbox" /> Tin chứng chỉ máy chủ (nội bộ)</label>
+        <p id="connect-error" class="error" role="alert" hidden></p>
+        <div class="actions">
+          <button type="button" id="connect-cancel">Hủy</button>
+          <button type="submit" class="primary" id="connect-submit">Kết nối</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
