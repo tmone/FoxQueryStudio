@@ -71,7 +71,6 @@ const connectSubmit = el<HTMLButtonElement>('connect-submit');
 const statusBar = el('statusbar');
 const queryStatus = el('query-status');
 const queryState = el('query-state');
-const queryConnection = el('query-connection');
 const statusState = el('status-state');
 const connectionStatus = el('connection-status');
 const statusCursor = el('status-cursor');
@@ -116,14 +115,13 @@ function renderStatus(): void {
   statusBar.classList.toggle('connected', connection !== undefined);
   statusState.textContent = connection ? 'Đã kết nối' : 'Chưa kết nối';
   connectionStatus.textContent = connection ? `${connection.user} @ ${connection.server} / ${connection.database}` : '';
-  queryConnection.textContent = connection ? `${connection.server} | ${connection.database} | ${connection.user}` : '';
   statusCursor.textContent = active.currentCursor ? `Cursor: ${active.currentCursor}` : '';
 
   const result = active.result;
   const current = result?.resultSets[active.activeSet];
   statusRows.textContent = current ? `${current.rows.length} dòng${result!.truncated ? ' (đã cắt)' : ''}` : '';
   runStatus.textContent = running ? 'Đang chạy…' : result ? (result.error ? 'Lỗi' : seconds(result.elapsedMs)) : '';
-  queryState.textContent = running ? 'Đang chạy truy vấn…' : !result ? (connection ? 'Sẵn sàng' : 'Chưa kết nối') : result.error ? 'Truy vấn có lỗi' : 'Truy vấn chạy xong';
+  queryState.textContent = running ? 'Đang chạy truy vấn…' : !result ? 'Chưa chạy truy vấn' : result.error ? 'Truy vấn có lỗi' : 'Truy vấn chạy xong';
   queryStatus.classList.toggle('failed', !running && result?.error !== undefined);
 
   const position = editor.getPosition();

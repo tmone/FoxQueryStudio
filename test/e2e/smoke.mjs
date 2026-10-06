@@ -26,7 +26,7 @@ try {
   await page.waitForSelector('.monaco-editor', { timeout: 30_000 });
   // As in SSMS, the pane under the editor opens only once a query has something to show.
   assert.equal(await page.isHidden('.output'), true);
-  assert.equal(await page.textContent('#query-state'), 'Chưa kết nối');
+  assert.equal(await page.textContent('#query-state'), 'Chưa chạy truy vấn');
   await page.click('.monaco-editor');
   await page.keyboard.type('* lương tháng 1\nSELECT ALLTRIM(ten), NVL(luong, 0) FROM nv ;\nWHERE ngay >= {^2026-01-01} AND active = .T. && ghi chú');
 

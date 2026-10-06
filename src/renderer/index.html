@@ -63,10 +63,11 @@
           <pre id="pane-messages" class="pane text" hidden></pre>
           <pre id="pane-tsql" class="pane text" hidden></pre>
         </div>
-        <div id="query-status" class="query-status" role="status">
+        <div id="query-status" class="query-status" role="status" aria-label="Trạng thái của tab truy vấn">
           <span id="query-state"></span>
           <span class="spacer"></span>
-          <span id="query-connection"></span>
+          <span id="status-position"></span>
+          <span id="status-language" title="Ngôn ngữ của tab"></span>
           <span id="status-cursor" title="Cursor đang chọn của tab"></span>
           <span id="run-status"></span>
           <span id="status-rows"></span>
@@ -74,12 +75,10 @@
       </section>
     </main>
 
-    <footer id="statusbar" class="statusbar" role="status">
+    <footer id="statusbar" class="statusbar" role="status" aria-label="Trạng thái ứng dụng">
       <span id="status-state">Chưa kết nối</span>
       <span id="connection-status"></span>
       <span class="spacer"></span>
-      <span id="status-position"></span>
-      <span id="status-language" title="Ngôn ngữ của tab"></span>
       <button id="app-version" type="button" class="version" title="Kiểm tra cập nhật"></button>
     </footer>
 
