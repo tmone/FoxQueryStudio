@@ -5,3 +5,6 @@ test-results/
 *.log
 test/fixtures/
 .vitest/
+extension/.vscode-test/
+extension/dist/
+extension/test-results/

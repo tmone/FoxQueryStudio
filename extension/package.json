@@ -1,0 +1,50 @@
+{
+  "name": "foxquery",
+  "displayName": "FoxQuery",
+  "description": "Viết SELECT theo cú pháp FoxPro, dịch sang T-SQL và chạy trên SQL Server qua extension mssql",
+  "version": "0.1.0",
+  "publisher": "surehcs",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": { "vscode": "^1.105.0" },
+  "categories": ["Programming Languages", "Other"],
+  "main": "./dist/extension.js",
+  "extensionDependencies": ["ms-mssql.mssql"],
+  "activationEvents": ["onLanguage:foxsql"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "foxsql",
+        "aliases": ["FoxPro SQL", "FOX-SQL"],
+        "extensions": [".fox", ".fsql"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      { "language": "foxsql", "scopeName": "source.foxsql", "path": "./syntaxes/foxsql.tmLanguage.json" }
+    ],
+    "commands": [
+      { "command": "foxquery.run", "title": "Chạy truy vấn FoxPro", "category": "FoxQuery", "icon": "$(play)" },
+      { "command": "foxquery.showTsql", "title": "Hiện T-SQL đã dịch", "category": "FoxQuery", "icon": "$(split-horizontal)" },
+      { "command": "foxquery.newQuery", "title": "Truy vấn FoxPro mới", "category": "FoxQuery" }
+    ],
+    "keybindings": [
+      { "command": "foxquery.run", "key": "f5", "when": "editorLangId == foxsql && editorTextFocus" },
+      { "command": "foxquery.showTsql", "key": "ctrl+shift+t", "when": "editorLangId == foxsql && editorTextFocus" }
+    ],
+    "menus": {
+      "editor/title": [
+        { "command": "foxquery.run", "group": "navigation@1", "when": "editorLangId == foxsql" },
+        { "command": "foxquery.showTsql", "group": "navigation@2", "when": "editorLangId == foxsql" }
+      ],
+      "commandPalette": [
+        { "command": "foxquery.run", "when": "editorLangId == foxsql" },
+        { "command": "foxquery.showTsql", "when": "editorLangId == foxsql" }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch"
+  }
+}

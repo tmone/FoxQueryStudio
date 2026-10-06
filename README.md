@@ -146,3 +146,14 @@ Các mục có test canh (danh sách `DEVIATIONS` của bộ Northwind và `KNOW
 ## An toàn dữ liệu
 
 Việc chỉ đọc phải được đảm bảo ở SQL Server: cấp cho công cụ một login riêng chỉ có quyền `SELECT` trên các view/bảng đã thống nhất. Công cụ chỉ dịch `SELECT` và `BROWSE`, nhưng đó không phải lớp bảo vệ. Mật khẩu không được lưu xuống máy. Kết quả giới hạn 5000 dòng mỗi bảng.
+
+## Hướng mới: extension VS Code (nhánh `feature/vscode-extension`)
+
+Thư mục `extension/` là bản mẫu extension VS Code dùng lại extension `ms-mssql.mssql` của Microsoft (MIT, có trên Open VSX) cho kết nối, cây đối tượng và lưới kết quả; phần của mình chỉ còn tầng dịch và lệnh chạy.
+
+- Ngôn ngữ `foxsql` (`.fox`, `.fsql`), tô màu theo grammar `syntaxes/foxsql.tmLanguage.json`.
+- F5 trên tệp FoxPro: dịch sang T-SQL vào một tài liệu kề bên (mỗi tab FoxPro một tài liệu T-SQL), rồi gọi `mssql.runQuery`. Cursor giữ được giữa các lần chạy vì mssql giữ một kết nối theo từng tài liệu.
+- Lỗi và cảnh báo dịch hiện trong Problems khi gõ.
+- Chạy thử thật: `cd extension && npm run build && FQS_E2E_PASSWORD=... node test/drive.mjs` mở một VS Code tách riêng (`.vscode-test/`, cài sẵn mssql, hồ sơ kết nối trong `user-data/User/settings.json`) và lái như người dùng: F5, chọn kết nối, nhập mật khẩu, đọc lưới kết quả, tạo cursor rồi `BROWSE` ở lần chạy sau.
+
+Đã biết: IntelliSense của mssql báo "Invalid object name '#cur…'" trên tài liệu T-SQL vì không thấy bảng tạm tạo ở lần chạy trước; chỉ là nhiễu, truy vấn vẫn chạy (tắt bằng `mssql.intelliSense.enableErrorChecking: false`). Chưa có gợi ý theo schema cho `.fox` và chưa có chiều dịch T-SQL sang FoxPro.
