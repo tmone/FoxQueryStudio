@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeTheme, shell } from 'electron';
 import { join } from 'node:path';
 import type { ConnectionProfile } from '../shared/types';
 import sql from 'mssql';
@@ -8,6 +8,9 @@ import { setupUpdater } from './updater';
 
 const db = createDatabase(sql, tediousConfig);
 let mainWindow: BrowserWindow | undefined;
+
+// The app looks like SSMS, which is light whatever the Windows theme.
+nativeTheme.themeSource = 'light';
 
 function createWindow(): void {
   const window = new BrowserWindow({

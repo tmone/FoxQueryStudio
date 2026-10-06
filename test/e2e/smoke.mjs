@@ -24,6 +24,9 @@ try {
   const editorText = () => page.$eval('.monaco-editor .view-lines', (lines) => lines.innerText.replace(/ /g, ' '));
 
   await page.waitForSelector('.monaco-editor', { timeout: 30_000 });
+  // As in SSMS, the pane under the editor opens only once a query has something to show.
+  assert.equal(await page.isHidden('.output'), true);
+  assert.equal(await page.textContent('#query-state'), 'Chưa kết nối');
   await page.click('.monaco-editor');
   await page.keyboard.type('* lương tháng 1\nSELECT ALLTRIM(ten), NVL(luong, 0) FROM nv ;\nWHERE ngay >= {^2026-01-01} AND active = .T. && ghi chú');
 
@@ -53,12 +56,11 @@ try {
   assert.equal(await tabCount(), 2);
   await page.keyboard.press('F8');
   assert.equal(await page.isHidden('.explorer'), true);
-  assert.equal(await page.getAttribute('#btn-toggle-explorer', 'aria-pressed'), 'false');
   await page.keyboard.press('F8');
   assert.equal(await page.isVisible('.explorer'), true);
   await page.keyboard.press('Control+R');
   assert.equal(await page.isHidden('.output'), true);
-  await page.click('#btn-toggle-output');
+  await page.keyboard.press('Control+R');
   assert.equal(await page.isVisible('.output'), true);
   ok('handles shortcuts once each: new tab, close tab, toggle panels');
 
@@ -103,7 +105,7 @@ try {
   await page.keyboard.insertText('SELECT ALLTRIM(ten) AS ten FROM nv WHERE ma = "A01"');
   await page.keyboard.press('Control+Shift+D');
   assert.equal(await page.isVisible('.compare'), true);
-  assert.equal(await page.textContent('#compare-title'), 'T-SQL (chỉ đọc)');
+  assert.equal(await page.textContent('#compare-title'), 'T-SQL · bản dịch, chỉ đọc');
   await page.waitForFunction(() => /LTRIM\(\{fn RTRIM\(ten\)\}\)/.test(document.querySelector('#compare-editor .view-lines').innerText.replace(/ /g, ' ')));
   await page.keyboard.insertText(' AND luong > 0');
   await page.waitForFunction(() => /luong > 0/.test(document.querySelector('#compare-editor .view-lines').innerText.replace(/ /g, ' ')));
@@ -113,9 +115,10 @@ try {
   assert.equal(await language(), 'T-SQL');
   assert.match(await editorText(), /LTRIM\(\{fn RTRIM\(ten\)\}\)/);
   assert.equal(await page.textContent('#tab-translation'), 'FoxPro đã dịch');
-  assert.equal(await page.textContent('#compare-title'), 'FoxPro (chỉ đọc)');
+  assert.equal(await page.textContent('#compare-title'), 'FOX-SQL · bản dịch, chỉ đọc');
   assert.match(await compareText(), /LTRIM\(RTRIM\(ten\)\) AS ten FROM nv/);
-  await page.keyboard.press('Control+Shift+L');
+  assert.equal(await page.getAttribute('.language-switch [data-language=tsql]', 'aria-pressed'), 'true');
+  await page.click('.language-switch [data-language=foxpro]');
   assert.equal(await language(), 'FOX-SQL');
   assert.match(await editorText(), /LTRIM\(RTRIM\(ten\)\) AS ten FROM nv/);
   ok('rewrites the tab in the other language and back');
@@ -129,7 +132,7 @@ try {
   assert.equal(await language(), 'T-SQL');
   assert.match(await editorText(), /WITH x AS/);
   assert.match(await page.textContent('#pane-messages'), /Chưa đổi sang FOX-SQL được/);
-  await page.waitForFunction(() => document.querySelector('#compare-title').textContent === 'FoxPro: chưa dịch được');
+  await page.waitForFunction(() => document.querySelector('#compare-title').textContent === 'FOX-SQL · chưa dịch được');
   // A query opened from that tab starts in the same language.
   await page.keyboard.press('Control+N');
   assert.equal(await language(), 'T-SQL');

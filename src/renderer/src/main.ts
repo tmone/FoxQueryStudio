@@ -43,6 +43,8 @@ interface Tab {
   translation: string;
   activeSet: number;
   pane: PaneName;
+  /** False until the tab has something to show below the editor; the pane stays closed meanwhile. */
+  hasOutput: boolean;
 }
 
 const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -67,6 +69,9 @@ const connectForm = el<HTMLFormElement>('connect-form');
 const connectError = el('connect-error');
 const connectSubmit = el<HTMLButtonElement>('connect-submit');
 const statusBar = el('statusbar');
+const queryStatus = el('query-status');
+const queryState = el('query-state');
+const queryConnection = el('query-connection');
 const statusState = el('status-state');
 const connectionStatus = el('connection-status');
 const statusCursor = el('status-cursor');
@@ -75,7 +80,9 @@ const runStatus = el('run-status');
 const statusPosition = el('status-position');
 const updateButton = el<HTMLButtonElement>('btn-update');
 const versionButton = el<HTMLButtonElement>('app-version');
-const languageButton = el<HTMLButtonElement>('status-language');
+const statusLanguage = el('status-language');
+const languageButtons = [...document.querySelectorAll<HTMLButtonElement>('.language-switch button')];
+const sourceTitle = el('source-title');
 const translationTab = el<HTMLButtonElement>('tab-translation');
 const compareTitle = el('compare-title');
 
@@ -109,16 +116,20 @@ function renderStatus(): void {
   statusBar.classList.toggle('connected', connection !== undefined);
   statusState.textContent = connection ? 'Đã kết nối' : 'Chưa kết nối';
   connectionStatus.textContent = connection ? `${connection.user} @ ${connection.server} / ${connection.database}` : '';
+  queryConnection.textContent = connection ? `${connection.server} | ${connection.database} | ${connection.user}` : '';
   statusCursor.textContent = active.currentCursor ? `Cursor: ${active.currentCursor}` : '';
 
   const result = active.result;
   const current = result?.resultSets[active.activeSet];
   statusRows.textContent = current ? `${current.rows.length} dòng${result!.truncated ? ' (đã cắt)' : ''}` : '';
   runStatus.textContent = running ? 'Đang chạy…' : result ? (result.error ? 'Lỗi' : seconds(result.elapsedMs)) : '';
+  queryState.textContent = running ? 'Đang chạy truy vấn…' : !result ? (connection ? 'Sẵn sàng' : 'Chưa kết nối') : result.error ? 'Truy vấn có lỗi' : 'Truy vấn chạy xong';
+  queryStatus.classList.toggle('failed', !running && result?.error !== undefined);
 
   const position = editor.getPosition();
   statusPosition.textContent = position ? `Dòng ${position.lineNumber}, Cột ${position.column}` : '';
-  languageButton.textContent = LANGUAGES[active.language].label;
+  statusLanguage.textContent = LANGUAGES[active.language].label;
+  for (const button of languageButtons) button.setAttribute('aria-pressed', String(button.dataset.language === active.language));
 
   runButton.disabled = !connection || running;
   disconnectButton.disabled = !connection;
@@ -180,6 +191,7 @@ function newTab(text = '', filePath?: string, language: QueryLanguage = filePath
     translation: '',
     activeSet: 0,
     pane: 'results',
+    hasOutput: false,
   };
   tabs.push(tab);
   activate(tab);
@@ -230,6 +242,7 @@ function placeholder(text: string): HTMLDivElement {
 
 function renderOutput(): void {
   const sets = active.result?.resultSets ?? [];
+  document.body.classList.toggle('empty-output', !active.hasOutput);
   panes.messages.textContent = active.messages;
   panes.tsql.textContent = active.translation;
   translationTab.textContent = `${LANGUAGES[LANGUAGES[active.language].other].name} đã dịch`;
@@ -327,6 +340,7 @@ async function run(): Promise<void> {
 
   tab.activeSet = 0;
   tab.result = result;
+  tab.hasOutput = true;
 
   if (!result) {
     if (!errors.length) lines.push('Không có lệnh nào cần gửi lên máy chủ.');
@@ -376,9 +390,11 @@ const compareShown = () => document.body.classList.contains('show-compare');
 /** Fills the compare column with the live translation of the active tab. */
 function renderCompare(): void {
   if (!compareShown()) return;
-  const target = LANGUAGES[LANGUAGES[active.language].other];
+  const source = LANGUAGES[active.language];
+  const target = LANGUAGES[source.other];
   const { text, errors } = translate(active, active.model.getValue());
-  compareTitle.textContent = errors.length ? `${target.name}: chưa dịch được` : `${target.name} (chỉ đọc)`;
+  sourceTitle.textContent = `${source.label} · đang soạn`;
+  compareTitle.textContent = `${target.label} · ${errors.length ? 'chưa dịch được' : 'bản dịch, chỉ đọc'}`;
   monaco.editor.setModelLanguage(compareEditor.getModel()!, target.monacoId);
   compareEditor.setValue(errors.length ? formatDiagnostics('Lỗi', errors).join('\n') : text);
 }
@@ -408,7 +424,8 @@ function switchLanguage(): void {
     setMarkers(tab, errors, warnings);
     if (errors.length) {
       tab.messages = [`Chưa đổi sang ${LANGUAGES[target].label} được, nội dung giữ nguyên:`, ...formatDiagnostics('Lỗi', errors)].join('\n');
-      showOutput('messages');
+      tab.hasOutput = true;
+      tab.pane = 'messages';
       renderOutput();
       editor.focus();
       return;
@@ -524,6 +541,7 @@ async function refreshSchema(): Promise<void> {
   } catch (e) {
     active.messages = `Không nạp lại được danh sách đối tượng: ${ipcErrorMessage(e)}`;
     active.pane = 'messages';
+    active.hasOutput = true;
     renderOutput();
   }
 }
@@ -556,14 +574,19 @@ function onUpdateAction(): void {
 
 // ---------- Commands ----------
 
-function togglePanel(className: string, button: HTMLElement): void {
-  const hidden = document.body.classList.toggle(className);
-  button.setAttribute('aria-pressed', String(!hidden));
+const HIDE_OUTPUT = 'hide-output';
+
+/** Opens the pane below the editor on the given tab, even for a query that has not run yet. */
+function showOutput(pane: PaneName): void {
+  document.body.classList.remove(HIDE_OUTPUT);
+  active.hasOutput = true;
+  active.pane = pane;
+  renderOutput();
 }
 
-function showOutput(pane: PaneName): void {
-  if (document.body.classList.contains('hide-output')) togglePanel('hide-output', el('btn-toggle-output'));
-  showPane(pane);
+function toggleOutput(): void {
+  if (active.hasOutput) document.body.classList.toggle(HIDE_OUTPUT);
+  else showOutput(active.pane);
 }
 
 /** One handler per command, shared by the menu, the toolbar and the keyboard. */
@@ -579,8 +602,8 @@ const HANDLERS: Record<AppCommand, () => void> = {
   'query.run': () => void run(),
   'query.switchLanguage': switchLanguage,
   'view.compare': toggleCompare,
-  'view.explorer': () => togglePanel('hide-explorer', el('btn-toggle-explorer')),
-  'view.output': () => togglePanel('hide-output', el('btn-toggle-output')),
+  'view.explorer': () => document.body.classList.toggle('hide-explorer'),
+  'view.output': toggleOutput,
   'view.results': () => showOutput('results'),
   'view.messages': () => showOutput('messages'),
   'view.tsql': () => showOutput('tsql'),
@@ -625,6 +648,9 @@ window.addEventListener(
 el('connect-cancel').addEventListener('click', () => connectDialog.close());
 connectForm.addEventListener('submit', (e) => void submitConnection(e));
 explorerFilter.addEventListener('input', () => explorer.setFilter(explorerFilter.value));
+for (const button of languageButtons) {
+  button.addEventListener('click', () => button.dataset.language !== active.language && switchLanguage());
+}
 editor.onDidChangeCursorPosition(renderStatus);
 editor.onDidChangeModelContent(scheduleCompare);
 

@@ -11,18 +11,16 @@
   </head>
   <body>
     <header class="toolbar" role="toolbar" aria-label="Thanh công cụ">
-      <button id="btn-new" type="button" data-command="file.new">Truy vấn mới</button>
-      <button id="btn-open" type="button" data-command="file.open">Mở</button>
-      <button id="btn-save" type="button" data-command="file.save">Lưu</button>
+      <button id="btn-new" type="button" class="tool labelled" data-command="file.new" title="Truy vấn mới (Ctrl+N)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 1.5h6l3 3v10h-9z"/><path d="M9.5 1.5v3h3"/><path d="M8 7.5v4M6 9.5h4"/></svg><span>Truy vấn mới</span></button>
+      <button id="btn-open" type="button" class="tool" data-command="file.open" title="Mở tệp (Ctrl+O)" aria-label="Mở tệp"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 12.5v-9h4l1.5 1.5h6v2"/><path d="M1.5 12.5l2-5.5h11l-2 5.5z"/></svg></button>
+      <button id="btn-save" type="button" class="tool" data-command="file.save" title="Lưu (Ctrl+S)" aria-label="Lưu"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 2.5h9l2 2v9h-11z"/><path d="M5 2.5v3.5h5v-3.5M4.5 13.5v-4.5h7v4.5"/></svg></button>
       <span class="divider"></span>
-      <button id="btn-connect" type="button" data-command="connection.connect">Kết nối</button>
-      <button id="btn-disconnect" type="button" data-command="connection.disconnect" disabled>Ngắt kết nối</button>
+      <button id="btn-connect" type="button" class="tool" data-command="connection.connect" title="Kết nối (Ctrl+Shift+C)" aria-label="Kết nối"><svg viewBox="0 0 16 16" aria-hidden="true"><ellipse cx="8" cy="4" rx="5" ry="2"/><path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4"/><path d="M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/></svg></button>
+      <button id="btn-disconnect" type="button" class="tool" data-command="connection.disconnect" title="Ngắt kết nối" aria-label="Ngắt kết nối" disabled><svg viewBox="0 0 16 16" aria-hidden="true"><ellipse cx="8" cy="4" rx="5" ry="2"/><path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4"/><path d="M2 14.5l12-13"/></svg></button>
       <span class="divider"></span>
-      <button id="btn-run" type="button" class="primary" data-command="query.run" disabled>▶ Chạy</button>
+      <button id="btn-run" type="button" class="tool labelled run" data-command="query.run" title="Chạy (F5)" disabled><svg viewBox="0 0 16 16" aria-hidden="true"><path class="fill" d="M4 2.5l9 5.5-9 5.5z"/></svg><span>Chạy</span></button>
       <span class="divider"></span>
-      <button id="btn-toggle-explorer" type="button" data-command="view.explorer" aria-pressed="true">Cây đối tượng</button>
-      <button id="btn-toggle-output" type="button" data-command="view.output" aria-pressed="true">Khung kết quả</button>
-      <button id="btn-toggle-compare" type="button" data-command="view.compare" aria-pressed="false">So sánh</button>
+      <button id="btn-toggle-compare" type="button" class="tool" data-command="view.compare" title="So sánh FOX-SQL và T-SQL (Ctrl+Shift+D)" aria-label="So sánh FOX-SQL và T-SQL" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 2.5h5.5v11h-5.5zM9 2.5h5.5v11h-5.5z"/><path d="M3 5.5h2.5M3 8h2.5M10.5 5.5h2.5M10.5 8h2.5M10.5 10.5h2.5"/></svg></button>
       <span class="spacer"></span>
       <button id="btn-update" type="button" class="primary" hidden></button>
     </header>
@@ -36,11 +34,20 @@
       <div id="split-explorer" class="splitter vertical" role="separator" aria-orientation="vertical"></div>
 
       <section class="center">
-        <div id="tabs" class="tabs" role="tablist"></div>
+        <div class="tab-strip">
+          <div id="tabs" class="tabs" role="tablist"></div>
+          <div class="language-switch" role="group" aria-label="Ngôn ngữ của tab">
+            <button type="button" data-language="foxpro" title="Soạn bằng FoxPro (Ctrl+Shift+L để đổi)">FOX-SQL</button>
+            <button type="button" data-language="tsql" title="Soạn bằng T-SQL (Ctrl+Shift+L để đổi)">T-SQL</button>
+          </div>
+        </div>
         <div class="editors">
-          <div id="editor" class="editor"></div>
-          <div class="compare">
-            <div id="compare-title" class="pane-title"></div>
+          <div class="column">
+            <div id="source-title" class="column-title"></div>
+            <div id="editor" class="editor"></div>
+          </div>
+          <div class="column compare">
+            <div id="compare-title" class="column-title"></div>
             <div id="compare-editor" class="editor"></div>
           </div>
         </div>
@@ -56,6 +63,14 @@
           <pre id="pane-messages" class="pane text" hidden></pre>
           <pre id="pane-tsql" class="pane text" hidden></pre>
         </div>
+        <div id="query-status" class="query-status" role="status">
+          <span id="query-state"></span>
+          <span class="spacer"></span>
+          <span id="query-connection"></span>
+          <span id="status-cursor" title="Cursor đang chọn của tab"></span>
+          <span id="run-status"></span>
+          <span id="status-rows"></span>
+        </div>
       </section>
     </main>
 
@@ -63,11 +78,8 @@
       <span id="status-state">Chưa kết nối</span>
       <span id="connection-status"></span>
       <span class="spacer"></span>
-      <span id="status-cursor" title="Cursor đang chọn của tab"></span>
-      <span id="status-rows"></span>
-      <span id="run-status"></span>
       <span id="status-position"></span>
-      <button id="status-language" type="button" class="version" data-command="query.switchLanguage" title="Đổi ngôn ngữ của tab (Ctrl+Shift+L)"></button>
+      <span id="status-language" title="Ngôn ngữ của tab"></span>
       <button id="app-version" type="button" class="version" title="Kiểm tra cập nhật"></button>
     </footer>
 
