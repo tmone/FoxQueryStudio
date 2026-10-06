@@ -18,6 +18,7 @@ interface QueryState {
 }
 
 const states = new Map<string, QueryState>();
+const trace = (message: string) => console.log(`[FoxQuery] ${message}`);
 /** FoxPro document the user worked in last, used when a webview or the T-SQL twin has focus. */
 let lastFoxDoc: vscode.TextDocument | undefined;
 let diagnostics: vscode.DiagnosticCollection;
@@ -35,6 +36,14 @@ function reportDiagnostics(doc: vscode.TextDocument, conversion: ConvertResult):
   ]);
 }
 
+const GROUP_FOCUS_COMMANDS = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth'].map((n) => `workbench.action.focus${n}EditorGroup`);
+const DOCK_POLL_MS = 250;
+const DOCK_TIMEOUT_MS = 8000;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const holdsDocument = (group: vscode.TabGroup, doc: vscode.TextDocument) =>
+  group.tabs.some((t) => t.input instanceof vscode.TabInputText && t.input.uri.toString() === doc.uri.toString());
+
 /** The T-SQL document paired with a FoxPro document, created beside it on first use. */
 async function pairedDocument(foxDoc: vscode.TextDocument): Promise<QueryState> {
   const key = foxDoc.uri.toString();
@@ -49,9 +58,10 @@ async function pairedDocument(foxDoc: vscode.TextDocument): Promise<QueryState> 
 
 /** Shows the T-SQL twin in a group under the FoxPro editor, creating that group on first use. */
 async function showBelow(doc: vscode.TextDocument, focus: boolean): Promise<void> {
-  const open = vscode.window.visibleTextEditors.find((ed) => ed.document === doc);
-  if (open) {
-    await vscode.window.showTextDocument(doc, { viewColumn: open.viewColumn, preserveFocus: !focus, preview: false });
+  // The twin may sit behind the results tab, so look at tabs rather than visible editors.
+  const group = vscode.window.tabGroups.all.find((g) => holdsDocument(g, doc));
+  if (group) {
+    await vscode.window.showTextDocument(doc, { viewColumn: group.viewColumn, preserveFocus: !focus, preview: false });
     return;
   }
   await vscode.commands.executeCommand('workbench.action.splitEditorDown');
@@ -89,6 +99,25 @@ async function convertToSide(foxDoc: vscode.TextDocument, focusTsql: boolean): P
   return { state, conversion };
 }
 
+/**
+ * mssql opens its results beside the T-SQL twin, as a third group. Pull that tab into
+ * the twin's group so the lower half is one tab strip: T-SQL and results.
+ */
+async function dockResultsWithTwin(foxDoc: vscode.TextDocument, state: QueryState): Promise<void> {
+  for (let waited = 0; waited < DOCK_TIMEOUT_MS; waited += DOCK_POLL_MS) {
+    const groups = vscode.window.tabGroups.all;
+    const twinGroup = groups.find((g) => holdsDocument(g, state.tsqlDoc));
+    const strayGroup = groups.find((g) => g !== twinGroup && !holdsDocument(g, foxDoc) && g.tabs.some((t) => t.input instanceof vscode.TabInputWebview));
+    if (twinGroup && strayGroup) {
+      await vscode.commands.executeCommand(GROUP_FOCUS_COMMANDS[strayGroup.viewColumn - 1]);
+      // Groups are stacked, so move by order rather than by left/right.
+      await vscode.commands.executeCommand(strayGroup.viewColumn > twinGroup.viewColumn ? 'workbench.action.moveEditorToPreviousGroup' : 'workbench.action.moveEditorToNextGroup');
+      return;
+    }
+    await sleep(DOCK_POLL_MS);
+  }
+}
+
 async function runQuery(): Promise<void> {
   const foxDoc = activeFoxDocument();
   if (!foxDoc) {
@@ -96,16 +125,23 @@ async function runQuery(): Promise<void> {
     return;
   }
   // mssql runs whatever editor is active, so the T-SQL twin must have focus.
+  trace(`run: ${foxDoc.uri.toString()}`);
   const converted = await convertToSide(foxDoc, true);
   if (!converted) return;
+  trace(`twin shown, active=${vscode.window.activeTextEditor?.document.uri.toString()}`);
   if (!converted.conversion.sql) {
     void vscode.window.showInformationMessage('FoxQuery: không có lệnh nào cần gửi lên máy chủ.');
   } else {
     await vscode.commands.executeCommand(MSSQL_RUN_QUERY);
+    trace('mssql.runQuery returned');
+    await dockResultsWithTwin(foxDoc, converted.state);
+    trace('dock done');
   }
   // The mssql extension does not report back; cursors are taken as created once sent.
   converted.state.cursors = converted.conversion.cursors;
   converted.state.currentCursor = converted.conversion.currentCursor;
+  // Results open in the lower group; typing continues in the FoxPro editor above.
+  await vscode.window.showTextDocument(foxDoc, { viewColumn: vscode.ViewColumn.One, preserveFocus: false });
 }
 
 async function showTsql(): Promise<void> {

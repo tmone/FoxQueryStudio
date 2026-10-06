@@ -29,7 +29,7 @@ const app = await electron.launch({
   ],
 });
 const log = (m) => console.log(`[${new Date().toISOString().slice(11, 19)}] ${m}`);
-const shot = (page, name) => page.screenshot({ path: `${OUT}/${name}.png` });
+const shot = (page, name) => page.screenshot({ path: `${OUT}/${name}.png`, timeout: 10_000 }).catch((e) => log(`screenshot ${name} failed: ${String(e.message).slice(0, 80)}`));
 const texts = (page, selector) => page.$$eval(selector, (nodes) => nodes.map((n) => n.textContent?.trim()).filter(Boolean));
 
 /** Text of every webview frame whose content matches `pattern`. */
