@@ -8,7 +8,7 @@ mkdirSync('test-results', { recursive: true });
 
 const FUNCTIONS = 'src/converter/functions.ts';
 const INDEX = 'src/converter/index.ts';
-const READER = 'tools/dbf/reader.ts';
+const READER = 'src/dbf/reader.ts';
 const HARNESS = 'test/support/harness.ts';
 const TEST_FILES = ['test/northwind.integration.test.ts', 'test/edge.integration.test.ts'];
 const REPORT = 'test-results/mutation-report.json';

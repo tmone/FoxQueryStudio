@@ -197,6 +197,14 @@ button.version.failed {
   background: #6b7a8f;
 }
 
+.tree .local > summary::before {
+  background: #b5532d;
+}
+
+.tree .local {
+  margin-top: 6px;
+}
+
 .tree .database > summary::before {
   background: #c8891e;
   border-radius: 50%;

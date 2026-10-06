@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { convertTsql } from '../src/converter/reverse';
-import { loadFoxDatabase } from '../tools/dbf/database';
+import { loadFoxDatabase } from '../src/dbf/database';
 import { isLocalDbAvailable, runBatches, type SqlBatchResult } from '../tools/sqlrun';
 import { isVfpAvailable, runInVfp, type VfpResult } from '../tools/vfp/oracle';
 import { columnKindResolver, columnWidthResolver, importDatabase, normalizeRows } from './support/harness';

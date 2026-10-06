@@ -1,3 +1,4 @@
+import type { LocalDatabase, LocalTable } from '../../shared/local-db';
 import type { SchemaTable } from '../../shared/types';
 import { qualifiedName } from './editor';
 
@@ -12,6 +13,10 @@ export interface ExplorerActions {
   /** Opens a new query that reads the first rows of the table. */
   selectTop(table: SchemaTable): void;
   refresh(): void;
+  /** How the active tab names a local table: bare in FoxPro, #name in T-SQL. */
+  localName(table: LocalTable): string;
+  previewLocal(table: LocalTable): void;
+  closeLocal(): void;
 }
 
 interface MenuAction {
@@ -19,7 +24,7 @@ interface MenuAction {
   run(): void;
 }
 
-type NodeKind = 'server' | 'database' | 'group' | 'table' | 'view' | 'folder' | 'cursors';
+type NodeKind = 'server' | 'database' | 'group' | 'table' | 'view' | 'folder' | 'cursors' | 'local';
 
 /** A tree node: a collapsible `details` whose summary carries an icon and a label. */
 function node(kind: NodeKind, label: string, open = false): { details: HTMLDetailsElement; summary: HTMLElement } {
@@ -57,6 +62,7 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
   let cursors: string[] = [];
   let currentCursor: string | undefined;
   let cursorsNode: HTMLDetailsElement | undefined;
+  let local: LocalDatabase | undefined;
   let contextMenu: HTMLElement | undefined;
 
   const closeContextMenu = () => {
@@ -102,17 +108,54 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
     // Columns are built on first expand to keep large schemas light.
     details.addEventListener('toggle', () => {
       if (!details.open || details.querySelector('.folder')) return;
-      const folder = node('folder', `Cột (${table.columns.length})`, true);
-      const list = document.createElement('ul');
-      for (const column of table.columns) {
-        const item = leaf('column', column.name, `${column.dataType}${column.nullable ? ', null' : ''}`);
-        item.addEventListener('dblclick', () => actions.insertText(column.name));
-        list.append(item);
-      }
-      folder.details.append(list);
-      details.append(folder.details);
+      details.append(columnFolder(table.columns.map((c) => ({ name: c.name, detail: `${c.dataType}${c.nullable ? ', null' : ''}` }))));
     });
     return details;
+  }
+
+  function columnFolder(columns: { name: string; detail: string }[]): HTMLDetailsElement {
+    const folder = node('folder', `Cột (${columns.length})`, true);
+    const list = document.createElement('ul');
+    for (const column of columns) {
+      const item = leaf('column', column.name, column.detail);
+      item.addEventListener('dblclick', () => actions.insertText(column.name));
+      list.append(item);
+    }
+    folder.details.append(list);
+    return folder.details;
+  }
+
+  function localTableNode(table: LocalTable): HTMLDetailsElement {
+    const { details, summary } = node('table', `${table.name} (${table.rowCount} dòng)`);
+    summary.title = 'Nhấp đúp để chèn tên; nhấp phải để xem thêm lệnh';
+    summary.addEventListener('dblclick', () => actions.insertText(actions.localName(table)));
+    summary.addEventListener('contextmenu', (event) =>
+      showContextMenu(event, [
+        { label: 'Xem 100 dòng đầu', run: () => actions.previewLocal(table) },
+        { label: 'Chèn tên vào truy vấn', run: () => actions.insertText(actions.localName(table)) },
+        { label: 'Chèn danh sách cột', run: () => actions.insertText(table.columns.map((c) => c.name).join(', ')) },
+      ]),
+    );
+    details.addEventListener('toggle', () => {
+      if (details.open && !details.querySelector('.folder')) details.append(columnFolder(table.columns.map((c) => ({ name: c.name, detail: c.dataType }))));
+    });
+    return details;
+  }
+
+  /** The local FoxPro database, a root of its own next to the server. */
+  function localNode(database: LocalDatabase): HTMLDetailsElement {
+    const visible = database.tables.filter((t) => t.name.includes(filter));
+    const root = node('local', `FoxPro cục bộ: ${database.name} (${visible.length} bảng)`, true);
+    root.summary.title = database.path;
+    root.summary.addEventListener('contextmenu', (event) => showContextMenu(event, [{ label: 'Đóng CSDL cục bộ', run: actions.closeLocal }]));
+    if (!connection) {
+      const hint = document.createElement('div');
+      hint.className = 'empty';
+      hint.textContent = 'Kết nối SQL Server để chạy truy vấn trên các bảng này.';
+      root.details.append(hint);
+    }
+    root.details.append(...visible.map(localTableNode));
+    return root.details;
   }
 
   function renderCursors(): void {
@@ -135,7 +178,7 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
       const empty = document.createElement('div');
       empty.className = 'empty';
       empty.textContent = 'Kết nối để xem danh sách bảng và view.';
-      host.replaceChildren(empty);
+      host.replaceChildren(empty, ...(local ? [localNode(local)] : []));
       return;
     }
 
@@ -157,7 +200,7 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
       cursorsNode,
     );
     server.details.append(database.details);
-    host.replaceChildren(server.details);
+    host.replaceChildren(server.details, ...(local ? [localNode(local)] : []));
     renderCursors();
   }
 
@@ -166,6 +209,10 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
     setConnection(next: ExplorerConnection | undefined, tables: SchemaTable[]): void {
       connection = next;
       schema = tables;
+      render();
+    },
+    setLocal(next: LocalDatabase | undefined): void {
+      local = next;
       render();
     },
     setFilter(text: string): void {

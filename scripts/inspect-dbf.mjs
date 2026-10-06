@@ -1,7 +1,7 @@
 // Prints the structure and row count of every .dbf in a folder: node scripts/inspect-dbf.mjs <dir>
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { readDbf } from '../tools/dbf/reader.ts';
+import { readDbf } from '../src/dbf/reader.ts';
 
 const dir = process.argv[2] ?? join('test', 'fixtures', 'northwind');
 for (const file of readdirSync(dir).filter((f) => f.toLowerCase().endsWith('.dbf'))) {

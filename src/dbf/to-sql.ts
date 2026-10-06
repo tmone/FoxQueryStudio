@@ -41,9 +41,10 @@ export const migratedFields = (table: FoxTable) => table.fields.filter((f) => sq
 /** FoxPro's empty date has no SQL Server equivalent and is stored as NULL. */
 const acceptsNull = (field: DbfField) => field.nullable || field.type === 'D' || field.type === 'T';
 
-export function createTableSql(table: FoxTable): string {
+/** target is the bracketed name to create, by default a permanent table named after the FoxPro one. */
+export function createTableSql(table: FoxTable, target = `dbo.[${table.name}]`): string {
   const columns = migratedFields(table).map((f) => `  [${f.name}] ${sqlType(f)} ${acceptsNull(f) ? 'NULL' : 'NOT NULL'}`);
-  return `CREATE TABLE dbo.[${table.name}] (\n${columns.join(',\n')}\n)`;
+  return `CREATE TABLE ${target} (\n${columns.join(',\n')}\n)`;
 }
 
 function literal(value: DbfValue, field: DbfField): string {
@@ -60,7 +61,7 @@ function literal(value: DbfValue, field: DbfField): string {
   return `N'${text.replace(/'/g, "''")}'`;
 }
 
-export function insertSql(table: FoxTable): string[] {
+export function insertSql(table: FoxTable, target = `dbo.[${table.name}]`): string[] {
   const fields = migratedFields(table);
   const columns = fields.map((f) => `[${f.name}]`).join(', ');
   const batches: string[] = [];
@@ -68,7 +69,7 @@ export function insertSql(table: FoxTable): string[] {
     const rows = table.records
       .slice(start, start + INSERT_CHUNK_ROWS)
       .map((record) => `(${fields.map((f) => literal(record[f.name], f)).join(', ')})`);
-    batches.push(`INSERT INTO dbo.[${table.name}] (${columns}) VALUES\n${rows.join(',\n')}`);
+    batches.push(`INSERT INTO ${target} (${columns}) VALUES\n${rows.join(',\n')}`);
   }
   return batches;
 }

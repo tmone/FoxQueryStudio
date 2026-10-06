@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { ConnectionProfile } from '../shared/types';
 import sql from 'mssql';
 import { createDatabase, tediousConfig } from './db';
+import { setupLocalDatabase } from './local-db';
 import { setupMenu } from './menu';
 import { setupUpdater } from './updater';
 
@@ -58,6 +59,7 @@ function registerIpc(): void {
 void app.whenReady().then(() => {
   registerIpc();
   setupMenu(() => mainWindow);
+  setupLocalDatabase(() => mainWindow, db);
   setupUpdater(() => mainWindow);
   createWindow();
 });

@@ -1,4 +1,5 @@
 import { createColumnResolver, type ColumnContext, type ColumnKind, type ColumnKindResolver } from '../converter';
+import type { LocalTable } from './local-db';
 import type { SchemaColumn, SchemaTable } from './types';
 
 /** CHARACTER_MAXIMUM_LENGTH that SQL Server reports for varchar(max) and nvarchar(max). */
@@ -18,9 +19,15 @@ export function columnKind(column: SchemaColumn): ColumnKind | undefined {
   return kind === 'string' && column.maxLength === MAX_TYPE_LENGTH ? 'varstring' : kind;
 }
 
-/** Column kinds of a loaded schema, looked up through the tables each statement reads. */
-export function columnKindResolver(tables: SchemaTable[]): ColumnKindResolver {
-  return createColumnResolver(tables.map((t) => ({ name: t.name, columns: t.columns.map((c) => ({ name: c.name, kind: columnKind(c) })) })));
+/**
+ * Column kinds of a loaded schema, looked up through the tables each statement reads.
+ * A local FoxPro table hides a server table of the same name, as a cursor would.
+ */
+export function columnKindResolver(tables: SchemaTable[], local: LocalTable[] = []): ColumnKindResolver {
+  return createColumnResolver([
+    ...tables.map((t) => ({ name: t.name, columns: t.columns.map((c) => ({ name: c.name, kind: columnKind(c) })) })),
+    ...local.map((t) => ({ name: t.name, columns: t.columns.map((c) => ({ name: c.name, kind: c.kind })) })),
+  ]);
 }
 
 /** Widest character column FoxPro keeps as a fixed-width field; longer ones arrive as memo. */
@@ -29,9 +36,10 @@ const CHARACTER_TYPES = new Set(['char', 'varchar', 'nchar', 'nvarchar']);
 const bareName = (name: string) => name.split('.').pop()!.replace(/[[\]]/g, '').toLowerCase();
 
 /** Declared width of character columns, looked up through the tables each statement reads. */
-export function columnWidthResolver(tables: SchemaTable[]): (column: string, context: ColumnContext) => number | undefined {
+export function columnWidthResolver(tables: SchemaTable[], local: LocalTable[] = []): (column: string, context: ColumnContext) => number | undefined {
   const isField = (c: SchemaColumn) => CHARACTER_TYPES.has(c.dataType.toLowerCase()) && c.maxLength !== null && c.maxLength > 0 && c.maxLength <= MAX_FIELD_WIDTH;
   const byTable = new Map(tables.map((t) => [t.name.toLowerCase(), new Map(t.columns.filter(isField).map((c) => [c.name.toLowerCase(), c.maxLength!]))]));
+  for (const t of local) byTable.set(t.name, new Map(t.columns.filter((c) => c.width !== undefined).map((c) => [c.name.toLowerCase(), c.width!])));
   return (column, { qualifier, tables: refs }) => {
     const wanted = qualifier && bareName(qualifier);
     const candidates = wanted ? refs.filter((r) => r.alias?.toLowerCase() === wanted || bareName(r.name) === wanted) : refs;

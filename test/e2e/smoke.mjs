@@ -2,9 +2,9 @@
 // toolbar, keyboard shortcuts, status bar, file open and save.
 // Run `npm run build` first.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { _electron as electron } from 'playwright-core';
 
 const OUT_DIR = 'test-results';
@@ -141,6 +141,40 @@ try {
   await page.keyboard.press('Control+Shift+D');
   assert.equal(await page.isHidden('.compare'), true);
   ok('keeps untranslatable T-SQL unchanged and reports why');
+
+  // ---- Local FoxPro database ---------------------------------------------------------------
+  const fixtures = resolve('test/fixtures/northwind');
+  if (existsSync(join(fixtures, 'customers.dbf'))) {
+    await app.evaluate(({ dialog }, path) => (dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })), fixtures);
+    await page.keyboard.press('Control+Shift+O');
+    await page.waitForSelector('#explorer-tree .local');
+    assert.match(await page.textContent('#explorer-tree .local > summary'), /^FoxPro cục bộ: northwind \(\d+ bảng\)$/);
+    assert.match(await page.textContent('#explorer-tree .local'), /Kết nối SQL Server để chạy truy vấn/);
+    assert.match(await page.textContent('#pane-messages'), /Đã mở .*northwind: \d+ bảng, \d+ dòng\./);
+    const customers = page.locator('#explorer-tree .local .table > summary', { hasText: /^customers \(\d+ dòng\)$/ });
+    await customers.click();
+    assert.match(await page.textContent('#explorer-tree .local'), /companyname nchar\(\d+\)/);
+
+    // FoxPro reads a local table by name, T-SQL as the #temp table it is loaded into.
+    await page.keyboard.press('Control+N');
+    await page.keyboard.insertText('SELECT * FROM ');
+    await customers.dblclick();
+    await page.waitForFunction(() => /FROM customers$/.test(document.querySelector('.monaco-editor .view-lines').innerText.replace(/ /g, ' ').trim()));
+    await page.keyboard.press('Control+Shift+L');
+    assert.equal(await language(), 'T-SQL');
+    assert.match(await editorText(), /FROM #customers/);
+    await page.keyboard.press('Control+W');
+
+    await page.fill('#explorer-filter', 'order');
+    assert.match(await page.textContent('#explorer-tree .local > summary'), /\(2 bảng\)$/);
+    await page.fill('#explorer-filter', '');
+    await page.screenshot({ path: `${OUT_DIR}/smoke-local.png` });
+    await clickMenu(3, 'Đóng CSDL FoxPro cục bộ');
+    await page.waitForSelector('#explorer-tree .local', { state: 'detached' });
+    ok('opens a local FoxPro database, lists its tables and names them per language');
+  } else {
+    console.log('skip local FoxPro database (run `npm run fixtures`)');
+  }
 
   // ---- Connect dialog ----------------------------------------------------------------------
   await page.click('#btn-connect');

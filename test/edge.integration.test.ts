@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { convertFoxPro } from '../src/converter';
-import { loadFoxDatabase } from '../tools/dbf/database';
+import { loadFoxDatabase } from '../src/dbf/database';
 import { isLocalDbAvailable, runBatches, type SqlBatchResult } from '../tools/sqlrun';
 import { isVfpAvailable, runInVfp, runProgram, type VfpResult } from '../tools/vfp/oracle';
 import { CONDITIONS, TEXT_EXPRESSIONS, VALUE_EXPRESSIONS } from './edge/expressions';

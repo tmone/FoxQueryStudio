@@ -1,6 +1,6 @@
 import { createColumnResolver, type ColumnContext, type ColumnKind, type ColumnKindResolver } from '../../src/converter';
-import type { FoxTable } from '../../tools/dbf/database';
-import { createTableSql, insertSql } from '../../tools/dbf/to-sql';
+import type { FoxTable } from '../../src/dbf/database';
+import { createTableSql, insertSql } from '../../src/dbf/to-sql';
 import { runBatches, type SqlBatchResult, type SqlCell } from '../../tools/sqlrun';
 
 export type Cell = string | number | boolean | Date | null;

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { AppApi, AppCommand } from '../shared/commands';
+import type { LocalDbApi } from '../shared/local-db';
 import type { DbApi } from '../shared/types';
 import type { UpdateApi, UpdateStatus } from '../shared/update';
 
@@ -9,6 +10,12 @@ const api: DbApi = {
   loadSchema: () => ipcRenderer.invoke('db:schema'),
   execute: (sessionId, sql, maxRows) => ipcRenderer.invoke('db:execute', sessionId, sql, maxRows),
   closeSession: (sessionId) => ipcRenderer.invoke('db:closeSession', sessionId),
+};
+
+const localDb: LocalDbApi = {
+  open: () => ipcRenderer.invoke('local:open'),
+  close: () => ipcRenderer.invoke('local:close'),
+  load: (sessionId, tableNames) => ipcRenderer.invoke('local:load', sessionId, tableNames),
 };
 
 const updates: UpdateApi = {
@@ -35,5 +42,6 @@ const appApi: AppApi & { about(): Promise<void> } = {
 };
 
 contextBridge.exposeInMainWorld('db', api);
+contextBridge.exposeInMainWorld('localDb', localDb);
 contextBridge.exposeInMainWorld('app', appApi);
 contextBridge.exposeInMainWorld('updates', updates);
