@@ -249,7 +249,7 @@ function readUnit(tokens: Token[], i: number, state: State, lead: string | undef
         const path = t.text.split('.');
         const resolved = state.resolveColumnKind?.(path[path.length - 1], { qualifier: path[path.length - 2], tables: state.tables });
         if (resolved === 'bool' && isBareCondition(tokens, i, lead)) return single({ text: `${text} = 1` });
-        const kind = resolved === 'varstring' ? 'string' : resolved;
+        const kind = resolved === 'varstring' ? 'string' : resolved === 'integer' ? 'number' : resolved;
         return single({ text, kind, column: resolved !== 'varstring' });
       }
       const close = matchingParen(tokens, i + 1);
@@ -257,7 +257,7 @@ function readUnit(tokens: Token[], i: number, state: State, lead: string | undef
       const argUnits = rawArgs.map((arg, k) => rewriteUnits(arg, state, isConditionArg(t.text, k, rawArgs.length) ? 'WHERE' : undefined));
       const args = argUnits.map(joinUnits);
       const handler = findHandler(t.text, args.length);
-      const text = handler ? handler(args, state, rawArgs, argUnits.map(expressionKind)) : `${t.text}(${args.join(', ')})`;
+      const text = handler ? handler(args, state, rawArgs, argUnits.map((units) => expressionKind(units))) : `${t.text}(${args.join(', ')})`;
       return { unit: { text, kind: returnKind(t.text) }, next: close + 1 };
     }
     default:

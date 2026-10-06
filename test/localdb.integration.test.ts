@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -41,8 +41,10 @@ function run(foxpro: string): string[] {
   try {
     const file = join(dir, 'batch.sql');
     writeFileSync(file, `﻿${SETUP}\n${converted.sql};\nDROP TABLE dbo.fqs_nv;\n`, 'utf8');
-    const output = sqlcmd(['-i', file, '-f', '65001', '-h', '-1', '-W', '-s', '|']);
-    return output.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    // Results go through a UTF-8 file: sqlcmd's stdout follows the console code page, which mangles Vietnamese.
+    const out = join(dir, 'out.txt');
+    sqlcmd(['-i', file, '-o', out, '-f', '65001', '-u', '-h', '-1', '-W', '-s', '|']);
+    return readFileSync(out, 'utf16le').replace(/^﻿/, '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

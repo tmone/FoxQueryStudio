@@ -4,7 +4,11 @@ import { ConvertError, type Token } from './tokenizer';
  * `varstring` is a string column without a fixed width (memo, varchar(max)). Inside the
  * converter it is handled as `string` plus a variable-length flag.
  */
-export type ColumnKind = 'string' | 'varstring' | 'number' | 'date' | 'datetime' | 'bool';
+/**
+ * `varstring` is a string column without a fixed width; `integer` a whole-number column.
+ * The forward converter treats them as `string` and `number`; the reverse one needs the detail.
+ */
+export type ColumnKind = 'string' | 'varstring' | 'number' | 'integer' | 'date' | 'datetime' | 'bool';
 
 export interface FunctionContext {
   line: number;

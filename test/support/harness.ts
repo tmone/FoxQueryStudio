@@ -1,4 +1,4 @@
-import { createColumnResolver, type ColumnKind, type ColumnKindResolver } from '../../src/converter';
+import { createColumnResolver, type ColumnContext, type ColumnKind, type ColumnKindResolver } from '../../src/converter';
 import type { FoxTable } from '../../tools/dbf/database';
 import { createTableSql, insertSql } from '../../tools/dbf/to-sql';
 import { runBatches, type SqlBatchResult, type SqlCell } from '../../tools/sqlrun';
@@ -62,7 +62,19 @@ export function importDatabase(database: string, tables: FoxTable[], collation?:
   );
 }
 
+/** Declared width of character fields, for the reverse converter's literal padding. */
+export function columnWidthResolver(tables: FoxTable[]): (column: string, context: ColumnContext) => number | undefined {
+  const byTable = new Map(tables.map((t) => [t.name.toLowerCase(), new Map(t.fields.filter((f) => f.type === 'C').map((f) => [f.name.toLowerCase(), f.length]))]));
+  return (column, { qualifier, tables: refs }) => {
+    const wanted = qualifier?.toLowerCase();
+    const candidates = wanted ? refs.filter((r) => r.alias?.toLowerCase() === wanted || r.name.toLowerCase() === wanted) : refs;
+    const widths = new Set(candidates.map((r) => byTable.get(r.name.replace(/^dbo\./i, '').toLowerCase())?.get(column.toLowerCase())).filter((w) => w !== undefined));
+    return widths.size === 1 ? [...widths][0] : undefined;
+  };
+}
+
 /** Column kinds of the FoxPro tables, looked up through the tables each statement reads, as the app does. */
 export function columnKindResolver(tables: FoxTable[]): ColumnKindResolver {
-  return createColumnResolver(tables.map((t) => ({ name: t.name, columns: t.fields.map((f) => ({ name: f.name, kind: KIND_BY_TYPE[f.type] })) })));
+  const kindOf = (f: FoxTable['fields'][number]) => (f.type === 'I' || (f.type === 'N' && f.decimals === 0) ? 'integer' : KIND_BY_TYPE[f.type]);
+  return createColumnResolver(tables.map((t) => ({ name: t.name, columns: t.fields.map((f) => ({ name: f.name, kind: kindOf(f) })) })));
 }

@@ -139,6 +139,28 @@ Các mục có test canh (danh sách `DEVIATIONS` của bộ Northwind và `KNOW
 - Biểu thức logic trong danh sách cột (`SELECT a > b AS lon`) không chạy được trên SQL Server.
 - Chưa hỗ trợ: lệnh thủ tục (`USE`, `SCAN`, `REPLACE`, `SEEK`), macro `&`, `INTO TABLE/ARRAY`, phép trừ chuỗi.
 
+## Chiều ngược: T-SQL sang FoxPro
+
+`src/converter/reverse` dịch `SELECT` viết bằng T-SQL sang FoxPro, cho dev viết T-SQL mà cần bản FoxPro để demo. Chuẩn đối chiếu là Visual FoxPro 9 thật: `test/reverse.integration.test.ts` chạy câu T-SQL trên SQL Server (Northwind) và câu FoxPro sinh ra trong VFP 9 trên cùng dữ liệu dạng `.dbf`, so từng dòng.
+
+Những chỗ bản dịch phải bù vì FoxPro khác SQL Server:
+
+| T-SQL | FoxPro sinh ra | Lý do |
+|---|---|---|
+| `x = 'abc'`, `x <> 'abc'`, `x IN ('a','b')`, `LIKE` | `UPPER(x) == UPPER("abc")`, `!(…)`, từng phép `==` nối bằng OR, `UPPER() LIKE UPPER()` | FoxPro so đến hết chuỗi ngắn hơn và phân biệt hoa thường; SQL Server so đầy đủ, không phân biệt (tắt bằng `caseInsensitive: false`) |
+| `a / b` khi cả hai là số nguyên | `INT(a / b)` | SQL Server cắt phần thập phân; cần schema để biết cột là số nguyên |
+| `a % b` | `(a - b * INT(a / b))` | Dấu kết quả theo số bị chia |
+| `LEN(x)` | `LEN(RTRIM(x))` | SQL Server bỏ khoảng trắng cuối |
+| `ISNULL`, `COALESCE`, `CASE`, `IIF` với hằng chuỗi | Hằng được `PADR()` tới độ rộng cột hoặc hằng dài nhất | FoxPro lấy độ rộng cột kết quả từ dòng đầu tiên, hằng ngắn ở dòng đầu làm cụt mọi dòng sau |
+| `'2026-01-31'`, `{d '…'}` | `{^2026-01-31}` | FoxPro có kiểu ngày riêng |
+| `DATEADD`/`DATEDIFF`/`GETDATE`/`CONVERT(…, 103/112)`/`CAST` | `+ n`, `GOMONTH`, `-`, `DATETIME()`, `DTOC`/`DTOS`, `TTOD`/`INT`/`TRANSFORM` | |
+| `cột_bit = 1` | `cột` | FoxPro không so trường logic với số |
+| `INTO #t`, `FROM #t`, `dbo.`, `[tên]`, `TOP (n)` | `INTO CURSOR t` (cuối câu), `FROM t`, bỏ `dbo.`, bỏ ngoặc, `TOP n` | |
+
+Không dịch được, báo lỗi rõ lý do: CTE (`WITH`), hàm cửa sổ (`OVER`), `APPLY`, `PIVOT`, `OFFSET/FETCH`, `CROSS JOIN`, `COLLATE`, biến `@x`, `FORMAT`, `STRING_AGG`, `DATENAME`, tên có khoảng trắng hoặc dấu (`[Họ tên]`), mẫu `LIKE` có `[ ]`, lệnh không phải `SELECT`. Hàm lạ được giữ nguyên kèm cảnh báo.
+
+Chưa có: công tắc ngôn ngữ và màn hai cột trong extension; `REPLACE` dịch sang `STRTRAN` kèm cảnh báo vì FoxPro phân biệt hoa thường.
+
 ## Chuyển DB FoxPro sang SQL Server
 
 `tools/dbf` ánh xạ kiểu như sau: `C` thành `nchar(n)` (giữ độ rộng cố định như FoxPro), `V` thành `nvarchar(n)`, `M` thành `nvarchar(max)`, `I` thành `int`, `N/F` thành `decimal`, `Y` thành `money`, `B` thành `float`, `L` thành `bit`, `D` thành `date`, `T` thành `datetime`. Ngày rỗng thành `NULL`. Bản ghi đã đánh dấu xóa bị bỏ qua. Trường General, blob và memo nhị phân không được chuyển. Tên cột dài lấy từ file `.dbc`.

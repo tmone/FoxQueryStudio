@@ -5,7 +5,7 @@ import type { SchemaColumn, SchemaTable } from './types';
 const MAX_TYPE_LENGTH = -1;
 
 const KIND_BY_TYPE: Record<string, ColumnKind> = {
-  int: 'number', bigint: 'number', smallint: 'number', tinyint: 'number', decimal: 'number', numeric: 'number',
+  int: 'integer', bigint: 'integer', smallint: 'integer', tinyint: 'integer', decimal: 'number', numeric: 'number',
   money: 'number', smallmoney: 'number', float: 'number', real: 'number',
   bit: 'bool',
   date: 'date', datetime: 'datetime', datetime2: 'datetime', smalldatetime: 'datetime', datetimeoffset: 'datetime',

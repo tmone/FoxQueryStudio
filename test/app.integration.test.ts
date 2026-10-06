@@ -127,11 +127,11 @@ describe.skipIf(!isLocalDbAvailable())('application database service and query f
       const tables = [{ name: 'NhanVien', alias: 'n' }, { name: 'dbo.BangLuong', alias: 'b' }];
       const kinds = Object.fromEntries(['HoTen', 'GhiChu', 'NgaySinh', 'NgayVaoLam', 'LuongCoBan', 'NghiViec', 'MaNV', 'Thang', 'Anh'].map((n) => [n, resolveColumnKind(n, { tables })]));
       expect(kinds).toEqual({
-        HoTen: 'string', GhiChu: 'varstring', NgaySinh: 'date', NgayVaoLam: 'datetime', LuongCoBan: 'number', NghiViec: 'bool', MaNV: 'string', Thang: 'number', Anh: undefined,
+        HoTen: 'string', GhiChu: 'varstring', NgaySinh: 'date', NgayVaoLam: 'datetime', LuongCoBan: 'number', NghiViec: 'bool', MaNV: 'string', Thang: 'integer', Anh: undefined,
       });
       // A column is looked up only in the tables of its own statement, and through its qualifier when it has one.
       expect(resolveColumnKind('HoTen', { tables: [{ name: 'BangLuong' }] })).toBeUndefined();
-      expect(resolveColumnKind('Thang', { qualifier: 'b', tables })).toBe('number');
+      expect(resolveColumnKind('Thang', { qualifier: 'b', tables })).toBe('integer');
       expect(resolveColumnKind('Thang', { qualifier: 'n', tables })).toBeUndefined();
       expect(resolveColumnKind('HoTen', { tables: [] })).toBeUndefined();
     });
