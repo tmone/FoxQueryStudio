@@ -17,6 +17,10 @@ const LEAN_SETTINGS: Record<string, unknown> = {
   'editor.minimap.enabled': false,
   'breadcrumbs.enabled': false,
   'mssql.showGettingStarted': false,
+  'mssql.enableQueryHistoryFeature': false,
+  'mssql.showOverviewInObjectExplorer': false,
+  // The per-editor icon strip of mssql is replaced by F5 and the menu.
+  'workbench.editor.editorActionsLocation': 'hidden',
   // Results and messages in the bottom panel, under the editor, as in SSMS.
   'mssql.openQueryResultsInTabByDefault': false,
   'mssql.openQueryResultsInTabByDefaultDoNotShowPrompt': true,
@@ -41,6 +45,8 @@ export async function applyLeanLayout(): Promise<void> {
   await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
   await vscode.commands.executeCommand('workbench.action.closePanel');
   await vscode.commands.executeCommand(OBJECT_EXPLORER_VIEW);
+  // Background Tasks has no setting; the view's own hide command does it.
+  await vscode.commands.executeCommand('backgroundTasks.removeView').then(undefined, () => undefined);
 }
 
 /** Puts every setting back to its default; the user's own values are not known. */
