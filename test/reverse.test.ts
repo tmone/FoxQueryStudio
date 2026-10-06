@@ -26,6 +26,10 @@ describe('T-SQL to FoxPro: text comparison', () => {
     );
   });
 
+  it('reads the nested ODBC escapes the FoxPro converter writes', () => {
+    expect(fox("SELECT {fn LTRIM({fn RTRIM(ten)})} FROM nv WHERE ngay >= {d '2026-01-01'}")).toBe('SELECT LTRIM(RTRIM(ten)) FROM nv WHERE ngay >= {^2026-01-01}');
+  });
+
   it('keeps case sensitivity when asked', () => {
     expect(fox("SELECT * FROM nv WHERE ten = 'An'", { caseInsensitive: false })).toBe('SELECT * FROM nv WHERE ten == "An"');
   });

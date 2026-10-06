@@ -367,9 +367,27 @@ body.hide-output #split-output {
   color: var(--muted);
 }
 
-.editor {
+.editors {
   flex: 1;
   min-height: 80px;
+  display: flex;
+}
+
+.editor {
+  flex: 1;
+  min-width: 0;
+}
+
+.compare {
+  flex: 1;
+  min-width: 0;
+  display: none;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+}
+
+body.show-compare .compare {
+  display: flex;
 }
 
 .output {

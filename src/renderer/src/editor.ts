@@ -6,6 +6,8 @@ import type { SchemaTable } from '../../shared/types';
 export { monaco };
 
 export const LANGUAGE_ID = 'foxpro';
+/** Monaco's own SQL language, used for T-SQL. */
+export const TSQL_LANGUAGE_ID = 'sql';
 
 const KEYWORDS = [
   'SELECT', 'FROM', 'WHERE', 'INTO', 'CURSOR', 'ORDER', 'GROUP', 'BY', 'HAVING', 'JOIN', 'INNER', 'LEFT', 'RIGHT',
@@ -131,21 +133,27 @@ function registerLanguage(): void {
 const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
 const themeName = () => (darkQuery.matches ? 'vs-dark' : 'vs');
 
+const editorOptions = (): monaco.editor.IStandaloneEditorConstructionOptions => ({
+  theme: themeName(),
+  automaticLayout: true,
+  fontFamily: "Consolas, 'Cascadia Mono', monospace",
+  fontSize: 14,
+  minimap: { enabled: false },
+  scrollBeyondLastLine: false,
+  renderLineHighlight: 'line',
+  tabSize: 2,
+});
+
 export function createEditor(host: HTMLElement): monaco.editor.IStandaloneCodeEditor {
   self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
   registerLanguage();
   darkQuery.addEventListener('change', () => monaco.editor.setTheme(themeName()));
-  return monaco.editor.create(host, {
-    model: null,
-    theme: themeName(),
-    automaticLayout: true,
-    fontFamily: "Consolas, 'Cascadia Mono', monospace",
-    fontSize: 14,
-    minimap: { enabled: false },
-    scrollBeyondLastLine: false,
-    renderLineHighlight: 'line',
-    tabSize: 2,
-  });
+  return monaco.editor.create(host, { ...editorOptions(), model: null });
 }
 
-export const createModel = (text = '') => monaco.editor.createModel(text, LANGUAGE_ID);
+/** The read-only column that shows the translation next to the source. */
+export function createCompareEditor(host: HTMLElement): monaco.editor.IStandaloneCodeEditor {
+  return monaco.editor.create(host, { ...editorOptions(), value: '', language: TSQL_LANGUAGE_ID, readOnly: true, domReadOnly: true, wordWrap: 'on' });
+}
+
+export const createModel = (text: string, languageId: string) => monaco.editor.createModel(text, languageId);

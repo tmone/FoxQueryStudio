@@ -88,10 +88,56 @@ try {
   await app.evaluate(({ dialog }, path) => (dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })), legacy);
   await page.keyboard.press('Control+O');
   await page.waitForFunction(() => document.querySelector('.tab.active').textContent.startsWith('cu.prg'));
+  // The editor paints the new model a frame after the tab strip.
+  await page.waitForFunction(() => document.querySelector('.monaco-editor .view-lines').innerText.includes('Königlich'));
   assert.match(await editorText(), /ten = "Königlich"/);
   assert.equal(await tabCount(), 3);
   ok('saves a query to a file and opens a FoxPro source in the Windows code page');
   await page.screenshot({ path: `${OUT_DIR}/smoke-editor.png` });
+
+  // ---- Language switch and compare column -------------------------------------------------
+  const language = () => page.textContent('#status-language');
+  const compareText = () => page.$eval('#compare-editor .view-lines', (lines) => lines.innerText.replace(/ /g, ' '));
+  await page.keyboard.press('Control+N');
+  assert.equal(await language(), 'FOX-SQL');
+  await page.keyboard.insertText('SELECT ALLTRIM(ten) AS ten FROM nv WHERE ma = "A01"');
+  await page.keyboard.press('Control+Shift+D');
+  assert.equal(await page.isVisible('.compare'), true);
+  assert.equal(await page.textContent('#compare-title'), 'T-SQL (chỉ đọc)');
+  await page.waitForFunction(() => /LTRIM\(\{fn RTRIM\(ten\)\}\)/.test(document.querySelector('#compare-editor .view-lines').innerText.replace(/ /g, ' ')));
+  await page.keyboard.insertText(' AND luong > 0');
+  await page.waitForFunction(() => /luong > 0/.test(document.querySelector('#compare-editor .view-lines').innerText.replace(/ /g, ' ')));
+  ok('shows the live T-SQL translation next to the FoxPro source');
+
+  await page.keyboard.press('Control+Shift+L');
+  assert.equal(await language(), 'T-SQL');
+  assert.match(await editorText(), /LTRIM\(\{fn RTRIM\(ten\)\}\)/);
+  assert.equal(await page.textContent('#tab-translation'), 'FoxPro đã dịch');
+  assert.equal(await page.textContent('#compare-title'), 'FoxPro (chỉ đọc)');
+  assert.match(await compareText(), /LTRIM\(RTRIM\(ten\)\) AS ten FROM nv/);
+  await page.keyboard.press('Control+Shift+L');
+  assert.equal(await language(), 'FOX-SQL');
+  assert.match(await editorText(), /LTRIM\(RTRIM\(ten\)\) AS ten FROM nv/);
+  ok('rewrites the tab in the other language and back');
+  await page.screenshot({ path: `${OUT_DIR}/smoke-compare.png` });
+
+  // T-SQL that FoxPro cannot express must stay as it is, labelled as T-SQL.
+  await page.keyboard.press('Control+Shift+L');
+  await page.keyboard.press('Control+A');
+  await page.keyboard.insertText('WITH x AS (SELECT 1 AS a) SELECT a FROM x');
+  await page.keyboard.press('Control+Shift+L');
+  assert.equal(await language(), 'T-SQL');
+  assert.match(await editorText(), /WITH x AS/);
+  assert.match(await page.textContent('#pane-messages'), /Chưa đổi sang FOX-SQL được/);
+  await page.waitForFunction(() => document.querySelector('#compare-title').textContent === 'FoxPro: chưa dịch được');
+  // A query opened from that tab starts in the same language.
+  await page.keyboard.press('Control+N');
+  assert.equal(await language(), 'T-SQL');
+  await page.keyboard.press('Control+W');
+  await page.keyboard.press('Control+W');
+  await page.keyboard.press('Control+Shift+D');
+  assert.equal(await page.isHidden('.compare'), true);
+  ok('keeps untranslatable T-SQL unchanged and reports why');
 
   // ---- Connect dialog ----------------------------------------------------------------------
   await page.click('#btn-connect');

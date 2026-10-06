@@ -22,6 +22,7 @@
       <span class="divider"></span>
       <button id="btn-toggle-explorer" type="button" data-command="view.explorer" aria-pressed="true">Cây đối tượng</button>
       <button id="btn-toggle-output" type="button" data-command="view.output" aria-pressed="true">Khung kết quả</button>
+      <button id="btn-toggle-compare" type="button" data-command="view.compare" aria-pressed="false">So sánh</button>
       <span class="spacer"></span>
       <button id="btn-update" type="button" class="primary" hidden></button>
     </header>
@@ -36,13 +37,19 @@
 
       <section class="center">
         <div id="tabs" class="tabs" role="tablist"></div>
-        <div id="editor" class="editor"></div>
+        <div class="editors">
+          <div id="editor" class="editor"></div>
+          <div class="compare">
+            <div id="compare-title" class="pane-title"></div>
+            <div id="compare-editor" class="editor"></div>
+          </div>
+        </div>
         <div id="split-output" class="splitter horizontal" role="separator" aria-orientation="horizontal"></div>
         <div class="output">
           <div class="output-tabs">
             <button type="button" data-pane="results" class="active">Kết quả</button>
             <button type="button" data-pane="messages">Thông báo</button>
-            <button type="button" data-pane="tsql">T-SQL đã dịch</button>
+            <button id="tab-translation" type="button" data-pane="tsql">T-SQL đã dịch</button>
             <span id="result-sets" class="result-sets"></span>
           </div>
           <div id="pane-results" class="pane"></div>
@@ -60,6 +67,7 @@
       <span id="status-rows"></span>
       <span id="run-status"></span>
       <span id="status-position"></span>
+      <button id="status-language" type="button" class="version" data-command="query.switchLanguage" title="Đổi ngôn ngữ của tab (Ctrl+Shift+L)"></button>
       <button id="app-version" type="button" class="version" title="Kiểm tra cập nhật"></button>
     </footer>
 

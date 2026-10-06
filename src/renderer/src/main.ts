@@ -1,11 +1,12 @@
 import './style.css';
-import type { Diagnostic } from '../../converter';
-import { columnKindResolver } from '../../shared/column-kind';
+import { convertFoxPro, type Diagnostic } from '../../converter';
+import { convertTsql } from '../../converter/reverse';
+import { columnKindResolver, columnWidthResolver } from '../../shared/column-kind';
 import { commandForShortcut, shortcutOf, type AppCommand } from '../../shared/commands';
-import { runFoxQuery, type QueryOutcome } from '../../shared/run-query';
+import { runFoxQuery, runTsqlQuery } from '../../shared/run-query';
 import type { ConnectionProfile, ExecuteResult, SchemaTable } from '../../shared/types';
 import { updateActionLabel, type UpdateStatus } from '../../shared/update';
-import { createEditor, createModel, monaco, qualifiedName, setSchema } from './editor';
+import { createCompareEditor, createEditor, createModel, LANGUAGE_ID, monaco, qualifiedName, setSchema, TSQL_LANGUAGE_ID } from './editor';
 import { createExplorer, type ExplorerConnection } from './explorer';
 import { renderGrid } from './grid';
 
@@ -15,7 +16,15 @@ const PROFILE_STORAGE_KEY = 'fqs.profile';
 const MARKER_OWNER = 'foxpro';
 const MIN_EXPLORER_WIDTH = 160;
 const MIN_OUTPUT_HEIGHT = 80;
-const DEFAULT_EXTENSION = '.prg';
+const COMPARE_DELAY_MS = 250;
+
+/** The language a tab is written in; the other one is always derived from it. */
+type QueryLanguage = 'foxpro' | 'tsql';
+
+const LANGUAGES: Record<QueryLanguage, { label: string; name: string; monacoId: string; extension: string; other: QueryLanguage }> = {
+  foxpro: { label: 'FOX-SQL', name: 'FoxPro', monacoId: LANGUAGE_ID, extension: '.prg', other: 'tsql' },
+  tsql: { label: 'T-SQL', name: 'T-SQL', monacoId: TSQL_LANGUAGE_ID, extension: '.sql', other: 'foxpro' },
+};
 
 type PaneName = 'results' | 'messages' | 'tsql';
 
@@ -24,12 +33,14 @@ interface Tab {
   title: string;
   /** File the tab was opened from or saved to. */
   filePath?: string;
+  language: QueryLanguage;
   model: monaco.editor.ITextModel;
   cursors: string[];
   currentCursor?: string;
   result?: ExecuteResult;
   messages: string;
-  tsql: string;
+  /** The last run's source in the other language. */
+  translation: string;
   activeSet: number;
   pane: PaneName;
 }
@@ -64,14 +75,19 @@ const runStatus = el('run-status');
 const statusPosition = el('status-position');
 const updateButton = el<HTMLButtonElement>('btn-update');
 const versionButton = el<HTMLButtonElement>('app-version');
+const languageButton = el<HTMLButtonElement>('status-language');
+const translationTab = el<HTMLButtonElement>('tab-translation');
+const compareTitle = el('compare-title');
 
 const editor = createEditor(el('editor'));
+const compareEditor = createCompareEditor(el('compare-editor'));
 const tabs: Tab[] = [];
 let active: Tab;
 let tabCounter = 0;
 let connection: ExplorerConnection | undefined;
 let running = false;
 let resolveColumnKind = columnKindResolver([]);
+let resolveColumnWidth = columnWidthResolver([]);
 
 const insertIntoEditor = (text: string) => {
   editor.trigger('explorer', 'type', { text });
@@ -102,6 +118,7 @@ function renderStatus(): void {
 
   const position = editor.getPosition();
   statusPosition.textContent = position ? `Dòng ${position.lineNumber}, Cột ${position.column}` : '';
+  languageButton.textContent = LANGUAGES[active.language].label;
 
   runButton.disabled = !connection || running;
   disconnectButton.disabled = !connection;
@@ -143,19 +160,24 @@ function activate(tab: Tab): void {
   editor.focus();
   renderTabs();
   renderOutput();
+  renderCompare();
   explorer.setCursors(tab.cursors, tab.currentCursor);
 }
 
-function newTab(text = '', filePath?: string): void {
+const languageOfFile = (path: string): QueryLanguage => (path.toLowerCase().endsWith(LANGUAGES.tsql.extension) ? 'tsql' : 'foxpro');
+
+/** A new query starts in the language of the tab it was opened from. */
+function newTab(text = '', filePath?: string, language: QueryLanguage = filePath ? languageOfFile(filePath) : (active?.language ?? 'foxpro')): void {
   tabCounter++;
   const tab: Tab = {
     id: crypto.randomUUID(),
     title: filePath ? fileName(filePath) : `Truy vấn ${tabCounter}`,
     filePath,
-    model: createModel(text),
+    language,
+    model: createModel(text, LANGUAGES[language].monacoId),
     cursors: [],
     messages: '',
-    tsql: '',
+    translation: '',
     activeSet: 0,
     pane: 'results',
   };
@@ -182,7 +204,7 @@ async function openFile(): Promise<void> {
 
 async function saveFile(askForPath: boolean): Promise<void> {
   const tab = active;
-  const path = await window.app.saveFile(askForPath ? undefined : tab.filePath, tab.model.getValue(), tab.filePath ?? `${tab.title}${DEFAULT_EXTENSION}`);
+  const path = await window.app.saveFile(askForPath ? undefined : tab.filePath, tab.model.getValue(), tab.filePath ?? `${tab.title}${LANGUAGES[tab.language].extension}`);
   if (!path) return;
   tab.filePath = path;
   tab.title = fileName(path);
@@ -209,7 +231,8 @@ function placeholder(text: string): HTMLDivElement {
 function renderOutput(): void {
   const sets = active.result?.resultSets ?? [];
   panes.messages.textContent = active.messages;
-  panes.tsql.textContent = active.tsql;
+  panes.tsql.textContent = active.translation;
+  translationTab.textContent = `${LANGUAGES[LANGUAGES[active.language].other].name} đã dịch`;
 
   resultSetsHost.replaceChildren(
     ...(sets.length > 1
@@ -272,28 +295,37 @@ async function run(): Promise<void> {
   const lineOffset = useSelection ? selection.startLineNumber - 1 : 0;
   const shift = (list: Diagnostic[]) => list.map((d) => ({ ...d, line: d.line + lineOffset }));
 
-  let outcome: QueryOutcome;
+  const onExecute = () => {
+    running = true;
+    renderStatus();
+  };
+
+  let result: ExecuteResult | undefined;
+  let errors: Diagnostic[] = [];
+  let warnings: Diagnostic[];
+  const lines: string[] = [];
   try {
-    outcome = await runFoxQuery(executeOnServer, tab, source, {
-      maxRows: MAX_ROWS,
-      resolveColumnKind,
-      onExecute: () => {
-        running = true;
-        renderStatus();
-      },
-    });
+    if (tab.language === 'foxpro') {
+      const outcome = await runFoxQuery(executeOnServer, tab, source, { maxRows: MAX_ROWS, resolveColumnKind, onExecute });
+      result = outcome.result;
+      errors = shift(outcome.conversion.errors);
+      warnings = shift(outcome.conversion.warnings);
+      tab.translation = outcome.conversion.sql;
+      lines.push(...formatDiagnostics('Lỗi', errors), ...formatDiagnostics('Cảnh báo', warnings));
+    } else {
+      // T-SQL runs as written; what FoxPro cannot express only limits the translation.
+      const outcome = await runTsqlQuery(executeOnServer, tab, source, { maxRows: MAX_ROWS, resolveColumnKind, resolveColumnWidth, onExecute });
+      result = outcome.result;
+      warnings = shift([...outcome.conversion.errors, ...outcome.conversion.warnings]);
+      tab.translation = outcome.conversion.foxpro;
+      lines.push(...formatDiagnostics('Chưa dịch được sang FoxPro,', shift(outcome.conversion.errors)), ...formatDiagnostics('Cảnh báo', shift(outcome.conversion.warnings)));
+    }
   } finally {
     running = false;
   }
-
-  const { conversion, result } = outcome;
-  const errors = shift(conversion.errors);
-  const warnings = shift(conversion.warnings);
   setMarkers(tab, errors, warnings);
 
-  const lines = [...formatDiagnostics('Lỗi', errors), ...formatDiagnostics('Cảnh báo', warnings)];
   tab.activeSet = 0;
-  tab.tsql = conversion.sql;
   tab.result = result;
 
   if (!result) {
@@ -316,8 +348,81 @@ async function run(): Promise<void> {
   tab.messages = lines.join('\n');
   if (tab === active) {
     renderOutput();
+    renderCompare();
     explorer.setCursors(tab.cursors, tab.currentCursor);
   }
+}
+
+// ---------- Translation ----------
+
+interface Translation {
+  text: string;
+  errors: Diagnostic[];
+  warnings: Diagnostic[];
+}
+
+/** The tab's source in the other language, without running anything. */
+function translate(tab: Tab, source: string): Translation {
+  if (tab.language === 'foxpro') {
+    const { sql, errors, warnings } = convertFoxPro(source, { knownCursors: tab.cursors, currentCursor: tab.currentCursor, resolveColumnKind });
+    return { text: sql, errors, warnings };
+  }
+  const { foxpro, errors, warnings } = convertTsql(source, { resolveColumnKind, resolveColumnWidth });
+  return { text: foxpro, errors, warnings };
+}
+
+const compareShown = () => document.body.classList.contains('show-compare');
+
+/** Fills the compare column with the live translation of the active tab. */
+function renderCompare(): void {
+  if (!compareShown()) return;
+  const target = LANGUAGES[LANGUAGES[active.language].other];
+  const { text, errors } = translate(active, active.model.getValue());
+  compareTitle.textContent = errors.length ? `${target.name}: chưa dịch được` : `${target.name} (chỉ đọc)`;
+  monaco.editor.setModelLanguage(compareEditor.getModel()!, target.monacoId);
+  compareEditor.setValue(errors.length ? formatDiagnostics('Lỗi', errors).join('\n') : text);
+}
+
+let compareTimer: number | undefined;
+function scheduleCompare(): void {
+  window.clearTimeout(compareTimer);
+  compareTimer = window.setTimeout(renderCompare, COMPARE_DELAY_MS);
+}
+
+function toggleCompare(): void {
+  const shown = document.body.classList.toggle('show-compare');
+  el('btn-toggle-compare').setAttribute('aria-pressed', String(shown));
+  renderCompare();
+}
+
+/**
+ * Rewrites the tab in the other language. A tab that does not translate keeps its text and
+ * its language, so the label never disagrees with the content.
+ */
+function switchLanguage(): void {
+  const tab = active;
+  const target = LANGUAGES[tab.language].other;
+  const source = tab.model.getValue();
+  if (source.trim()) {
+    const { text, errors, warnings } = translate(tab, source);
+    setMarkers(tab, errors, warnings);
+    if (errors.length) {
+      tab.messages = [`Chưa đổi sang ${LANGUAGES[target].label} được, nội dung giữ nguyên:`, ...formatDiagnostics('Lỗi', errors)].join('\n');
+      showOutput('messages');
+      renderOutput();
+      editor.focus();
+      return;
+    }
+    // One undoable edit, so Ctrl+Z brings the original text back.
+    tab.model.pushEditOperations([], [{ range: tab.model.getFullModelRange(), text }], () => null);
+    tab.model.pushStackElement();
+  }
+  tab.language = target;
+  monaco.editor.setModelLanguage(tab.model, LANGUAGES[target].monacoId);
+  monaco.editor.setModelMarkers(tab.model, MARKER_OWNER, []);
+  renderOutput();
+  renderCompare();
+  editor.focus();
 }
 
 // ---------- Connection ----------
@@ -369,6 +474,8 @@ function applySchema(next: ExplorerConnection | undefined, tables: SchemaTable[]
   connection = next;
   setSchema(tables);
   resolveColumnKind = columnKindResolver(tables);
+  resolveColumnWidth = columnWidthResolver(tables);
+  renderCompare();
   explorer.setConnection(next, tables);
   explorer.setCursors(active.cursors, active.currentCursor);
   renderStatus();
@@ -470,6 +577,8 @@ const HANDLERS: Record<AppCommand, () => void> = {
   'connection.disconnect': () => void disconnect(),
   'connection.refresh': () => void refreshSchema(),
   'query.run': () => void run(),
+  'query.switchLanguage': switchLanguage,
+  'view.compare': toggleCompare,
   'view.explorer': () => togglePanel('hide-explorer', el('btn-toggle-explorer')),
   'view.output': () => togglePanel('hide-output', el('btn-toggle-output')),
   'view.results': () => showOutput('results'),
@@ -517,6 +626,7 @@ el('connect-cancel').addEventListener('click', () => connectDialog.close());
 connectForm.addEventListener('submit', (e) => void submitConnection(e));
 explorerFilter.addEventListener('input', () => explorer.setFilter(explorerFilter.value));
 editor.onDidChangeCursorPosition(renderStatus);
+editor.onDidChangeModelContent(scheduleCompare);
 
 document.querySelectorAll<HTMLButtonElement>('.output-tabs > button').forEach((button) => {
   button.addEventListener('click', () => showPane(button.dataset.pane as PaneName));

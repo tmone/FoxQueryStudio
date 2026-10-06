@@ -9,11 +9,13 @@ export type AppCommand =
   | 'connection.disconnect'
   | 'connection.refresh'
   | 'query.run'
+  | 'query.switchLanguage'
   | 'view.explorer'
   | 'view.output'
   | 'view.results'
   | 'view.messages'
   | 'view.tsql'
+  | 'view.compare'
   | 'help.checkUpdates'
   | 'help.about';
 
@@ -33,11 +35,13 @@ export const COMMANDS: Record<AppCommand, CommandInfo> = {
   'connection.disconnect': { label: 'Ngắt kết nối' },
   'connection.refresh': { label: 'Làm mới danh sách đối tượng', shortcut: 'Ctrl+Shift+R' },
   'query.run': { label: 'Chạy', shortcut: 'F5' },
+  'query.switchLanguage': { label: 'Đổi ngôn ngữ FOX-SQL / T-SQL', shortcut: 'Ctrl+Shift+L' },
   'view.explorer': { label: 'Cây đối tượng', shortcut: 'F8' },
   'view.output': { label: 'Khung kết quả', shortcut: 'Ctrl+R' },
   'view.results': { label: 'Kết quả' },
   'view.messages': { label: 'Thông báo' },
-  'view.tsql': { label: 'T-SQL đã dịch' },
+  'view.tsql': { label: 'Bản dịch' },
+  'view.compare': { label: 'So sánh hai cột', shortcut: 'Ctrl+Shift+D' },
   'help.checkUpdates': { label: 'Kiểm tra cập nhật' },
   'help.about': { label: 'Giới thiệu' },
 };
@@ -48,9 +52,9 @@ export type MenuEntry = AppCommand | '-' | `role:${'undo' | 'redo' | 'cut' | 'co
 export const MENUS: { label: string; items: MenuEntry[] }[] = [
   { label: '&Tệp', items: ['file.new', 'file.open', '-', 'file.save', 'file.saveAs', '-', 'file.closeTab', '-', 'role:quit'] },
   { label: '&Sửa', items: ['role:undo', 'role:redo', '-', 'role:cut', 'role:copy', 'role:paste', 'role:selectAll'] },
-  { label: '&Xem', items: ['view.explorer', 'view.output', '-', 'view.results', 'view.messages', 'view.tsql', '-', 'role:zoomIn', 'role:zoomOut', 'role:resetZoom', 'role:togglefullscreen'] },
+  { label: '&Xem', items: ['view.explorer', 'view.output', '-', 'view.results', 'view.messages', 'view.tsql', 'view.compare', '-', 'role:zoomIn', 'role:zoomOut', 'role:resetZoom', 'role:togglefullscreen'] },
   { label: '&Kết nối', items: ['connection.connect', 'connection.disconnect', '-', 'connection.refresh'] },
-  { label: 'Truy &vấn', items: ['query.run'] },
+  { label: 'Truy &vấn', items: ['query.run', '-', 'query.switchLanguage'] },
   { label: 'Trợ &giúp', items: ['help.checkUpdates', '-', 'help.about'] },
 ];
 

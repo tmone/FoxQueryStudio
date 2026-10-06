@@ -430,7 +430,9 @@ function readUnit(tokens: Token[], i: number, state: State): { unit: Unit; next:
       if (t.text === ')') throw new ConvertError('Thừa dấu ) đóng ngoặc.', t.line);
       if (t.text === '{') {
         // ODBC escape: {fn NAME(...)} or {d '...'} / {ts '...'}.
-        const close = tokens.findIndex((x, k) => k > i && isPunct(x, '}'));
+        // Escapes nest, as in {fn LTRIM({fn RTRIM(x)})}, so the closing brace is the matching one.
+        let depth = 0;
+        const close = tokens.findIndex((x, k) => k >= i && (isPunct(x, '{') ? ++depth : isPunct(x, '}') ? --depth : depth) === 0);
         if (close < 0) throw new ConvertError('Thiếu dấu } đóng.', t.line);
         const inner = tokens.slice(i + 1, close);
         if (isWord(inner[0], 'FN')) return { unit: rewrite(inner.slice(1), state)[0], next: close + 1 };
