@@ -69,6 +69,18 @@
         "command": "foxquery.restoreLayout",
         "title": "Khôi phục bố cục mặc định",
         "category": "FoxQuery"
+      },
+      {
+        "command": "foxquery.switchLanguage",
+        "title": "Đổi hiển thị FOX-SQL / T-SQL",
+        "category": "FoxQuery",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "foxquery.compare",
+        "title": "So sánh FOX-SQL và T-SQL cạnh nhau",
+        "category": "FoxQuery",
+        "icon": "$(diff)"
       }
     ],
     "keybindings": [
@@ -81,6 +93,16 @@
         "command": "foxquery.showTsql",
         "key": "ctrl+shift+t",
         "when": "editorLangId == foxsql && editorTextFocus"
+      },
+      {
+        "command": "foxquery.switchLanguage",
+        "key": "ctrl+shift+l",
+        "when": "editorTextFocus && (editorLangId == foxsql || editorLangId == sql)"
+      },
+      {
+        "command": "foxquery.compare",
+        "key": "ctrl+shift+d",
+        "when": "editorTextFocus && (editorLangId == foxsql || editorLangId == sql)"
       }
     ],
     "menus": {
@@ -94,6 +116,16 @@
           "command": "foxquery.showTsql",
           "group": "navigation@2",
           "when": "editorLangId == foxsql"
+        },
+        {
+          "command": "foxquery.switchLanguage",
+          "group": "navigation@3",
+          "when": "editorLangId == foxsql || editorLangId == sql"
+        },
+        {
+          "command": "foxquery.compare",
+          "group": "navigation@4",
+          "when": "editorLangId == foxsql || editorLangId == sql"
         }
       ],
       "commandPalette": [
@@ -104,6 +136,14 @@
         {
           "command": "foxquery.showTsql",
           "when": "editorLangId == foxsql"
+        },
+        {
+          "command": "foxquery.switchLanguage",
+          "when": "editorLangId == foxsql || editorLangId == sql"
+        },
+        {
+          "command": "foxquery.compare",
+          "when": "editorLangId == foxsql || editorLangId == sql"
         }
       ]
     }

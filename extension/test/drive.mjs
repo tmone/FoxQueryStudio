@@ -2,10 +2,12 @@
 // press F5, pick the saved connection, type the password, check the mssql results.
 //   FQS_E2E_PASSWORD=... node test/drive.mjs
 import { mkdirSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { _electron as electron } from 'playwright-core';
 
 const EXE = 'D:/SureHCS/tmp/vscode-test/vscode-win32-x64-archive-1.140.0/Code.exe';
+const CLI = 'D:/SureHCS/tmp/vscode-test/vscode-win32-x64-archive-1.140.0/bin/code.cmd';
 const ROOT = resolve('.vscode-test');
 const OUT = resolve('test-results');
 mkdirSync(OUT, { recursive: true });
@@ -13,7 +15,7 @@ const password = process.env.FQS_E2E_PASSWORD;
 if (!password) throw new Error('set FQS_E2E_PASSWORD');
 
 // Each run starts as a first run: no remembered layout, panels or editors.
-import('node:fs').then(({ rmSync }) => { for (const dir of ['workspaceStorage']) rmSync(`${ROOT}/user-data/User/${dir}`, { recursive: true, force: true }); });
+import('node:fs').then(({ rmSync }) => { for (const dir of ['workspaceStorage', 'Backups']) rmSync(`${ROOT}/user-data/User/${dir}`, { recursive: true, force: true }); });
 const { ELECTRON_RUN_AS_NODE: _x, ...env } = process.env;
 const app = await electron.launch({
   executablePath: EXE,
@@ -126,6 +128,28 @@ try {
   await runFox('SELECT DepartmentCode, COUNT(*) AS n FROM HCSEM_Employees WHERE !EMPTY(DepartmentCode) GROUP BY 1 INTO CURSOR curPB', 'vsc-05-cursor');
   await runFox('BROWSE FOR n >= 20', 'vsc-06-browse');
 
+
+
+  // ---- T-SQL written by a developer, switched to FOX-SQL and run from there ---------------
+  // The running window opens a file handed to the CLI with the same profile.
+  spawnSync(CLI, ['--reuse-window', `--user-data-dir=${ROOT}/user-data`, `--extensions-dir=${ROOT}/extensions`, `${ROOT}/workspace/demo.sql`], { shell: true, stdio: 'ignore' });
+  await page.waitForFunction(() => document.querySelector('.tab.active .label-name')?.textContent === 'demo', null, { timeout: 20_000 }).catch(() => log('demo.sql did not open'));
+  await page.waitForTimeout(1000);
+  log(`language item: ${(await texts(page, '.statusbar-item[id="surehcs.foxquery.foxquery.language"]')).join('')}`);
+  await page.keyboard.press('Control+Shift+L');
+  await page.waitForTimeout(3000);
+  await shot(page, 'vsc-07-switched');
+  const foxText = await page.$eval('.editor-group-container.active .monaco-editor .view-lines', (lines) => lines.innerText.replace(/ /g, ' '));
+  log(`FoxPro from T-SQL: ${foxText.replace(/s+/g, ' ').slice(0, 220)}`);
+  log(`language item after switch: ${(await texts(page, '.statusbar-item[id="surehcs.foxquery.foxquery.language"]')).join('')}`);
+  await page.keyboard.press('F5');
+  await page.waitForTimeout(8000);
+  await shot(page, 'vsc-08-run-from-tsql');
+  for (const text of await frameTexts(page, /Results|Messages/i)) log(`run from T-SQL pair webview: ${text.slice(0, 200)}`);
+  await page.keyboard.press('Control+Shift+D');
+  await page.waitForTimeout(2500);
+  await shot(page, 'vsc-09-compare');
+  log(`tabs after compare: ${(await texts(page, '.tabs-container .tab .label-name')).join(' | ')}`);
 
   // What the Problems panel holds: our converter diagnostics, or noise from the T-SQL twin.
   await page.keyboard.press('Control+Shift+M');
