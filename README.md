@@ -151,6 +151,8 @@ Việc chỉ đọc phải được đảm bảo ở SQL Server: cấp cho công
 
 Thư mục `extension/` là bản mẫu extension VS Code dùng lại extension `ms-mssql.mssql` của Microsoft (MIT, có trên Open VSX) cho kết nối, cây đối tượng và lưới kết quả; phần của mình chỉ còn tầng dịch và lệnh chạy.
 
+Quyết định 06/10/2026: dùng mssql nguyên gốc (bản 1.46), không fork; bản phân phối sau này đóng gói sẵn `.vsix` của nó. Chỉ fork và tinh gọn khi có nhu cầu bản gốc không đáp ứng được (kết quả gắn với tab FoxPro, bỏ cảnh báo thừa, lược phần Azure/Copilot).
+
 - Ngôn ngữ `foxsql` (`.fox`, `.fsql`), tô màu theo grammar `syntaxes/foxsql.tmLanguage.json`.
 - F5 trên tệp FoxPro: dịch sang T-SQL vào một tài liệu kề bên (mỗi tab FoxPro một tài liệu T-SQL), rồi gọi `mssql.runQuery`. Cursor giữ được giữa các lần chạy vì mssql giữ một kết nối theo từng tài liệu.
 - Lỗi và cảnh báo dịch hiện trong Problems khi gõ.
