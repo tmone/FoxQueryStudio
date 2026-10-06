@@ -1,35 +1,28 @@
 import { dialog, ipcMain, type BrowserWindow } from 'electron';
-import { loadFoxDatabase, type FoxTable } from '../dbf/database';
-import { migratedFields } from '../dbf/to-sql';
 import type { LocalDatabase } from '../shared/local-db';
-import { localDatabaseName, type LocalEngine } from './local-engine';
+import type { FoxEngine } from './fox-engine';
 
-/** Reads a FoxPro folder and loads it into the local engine. */
-export async function openLocalDatabase(engine: LocalEngine, folder: string): Promise<LocalDatabase> {
-  const tables: FoxTable[] = loadFoxDatabase(folder);
-  if (!tables.length) throw new Error('Thư mục không có tệp .dbf nào.');
-  const name = localDatabaseName(folder);
-  await engine.openDatabase(name, tables);
-  const notes = tables.flatMap((table) => {
-    const kept = migratedFields(table);
-    const dropped = table.fields.filter((f) => !kept.includes(f)).map((f) => f.name);
-    return dropped.length ? [`${table.name}: bỏ cột kiểu nhị phân ${dropped.join(', ')}`] : [];
-  });
-  return { path: folder, name, tableCount: tables.length, rowCount: tables.reduce((sum, t) => sum + t.records.length, 0), notes };
-}
+const FILE_FILTERS = [
+  { name: 'CSDL FoxPro', extensions: ['dbc', 'dbf'] },
+  { name: 'Mọi tệp', extensions: ['*'] },
+];
 
 /**
- * Serves "open a local FoxPro database" to the window. `activate` runs once the database is
- * loaded and switches the window's queries from the SQL Server connection to the local engine.
+ * Serves "open a FoxPro database" to the window: a database container (.dbc), or any table
+ * (.dbf) of a folder of free tables. `activate` runs once FoxPro has the database open and
+ * switches the window's queries from the SQL Server connection to it.
  */
-export function setupLocalDatabase(getWindow: () => BrowserWindow | undefined, engine: LocalEngine, activate: () => Promise<void>): void {
+export function setupLocalDatabase(getWindow: () => BrowserWindow | undefined, engine: FoxEngine, activate: () => Promise<void>): void {
   ipcMain.handle('local:open', async (): Promise<LocalDatabase | undefined> => {
     const window = getWindow();
     if (!window) return undefined;
-    const { canceled, filePaths } = await dialog.showOpenDialog(window, { title: 'Chọn thư mục chứa các tệp .dbf', properties: ['openDirectory'] });
+    const { canceled, filePaths } = await dialog.showOpenDialog(window, { title: 'Chọn tệp CSDL FoxPro (.dbc) hoặc một bảng (.dbf)', properties: ['openFile'], filters: FILE_FILTERS });
     if (canceled || !filePaths.length) return undefined;
-    const opened = await openLocalDatabase(engine, filePaths[0]);
+    const [path] = filePaths;
+    await engine.openDatabase(path);
     await activate();
-    return opened;
+    const name = path.split(/[\\/]/).pop()!;
+    // A single table stands for its folder: every free table next to it can be queried.
+    return path.toLowerCase().endsWith('.dbc') ? { path, name } : { path: path.slice(0, -name.length - 1), name: path.slice(0, -name.length - 1).split(/[\\/]/).pop()! };
   });
 }

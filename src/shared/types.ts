@@ -11,6 +11,8 @@ export interface ConnectionProfile {
 export interface SchemaColumn {
   name: string;
   dataType: string;
+  /** How the type is shown when it differs from dataType, e.g. a FoxPro field as C(40). */
+  display?: string;
   /** Character length; -1 for the (max) types. */
   maxLength: number | null;
   nullable: boolean;

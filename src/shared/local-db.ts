@@ -1,20 +1,16 @@
-/** A FoxPro database folder opened in the app's own local engine. */
+/** A FoxPro database opened from disk and queried with FoxPro itself. */
 export interface LocalDatabase {
-  /** Folder the .dbf files were read from. */
+  /** The database container (.dbc), or the folder of free tables. */
   path: string;
-  /** Name of the local database the tables were loaded into. */
+  /** Short name shown in the object explorer. */
   name: string;
-  tableCount: number;
-  rowCount: number;
-  /** What was left out while loading, each with the reason. */
-  notes: string[];
 }
 
-/** Window-level access to the local database, exposed through the preload bridge. */
+/** Window-level access to the FoxPro database, exposed through the preload bridge. */
 export interface LocalDbApi {
   /**
-   * Asks for a folder, loads its tables into the local engine and makes that database the
-   * one queries run in. Undefined when the dialog is cancelled.
+   * Asks for a .dbc or .dbf file and makes that database the one queries run in.
+   * Undefined when the dialog is cancelled.
    */
   open(): Promise<LocalDatabase | undefined>;
 }

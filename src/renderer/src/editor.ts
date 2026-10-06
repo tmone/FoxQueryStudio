@@ -28,7 +28,10 @@ export function quoteName(name: string): string {
   return /^[A-Za-z_][\w]*$/.test(name) ? name : `[${name.replace(/]/g, ']]')}]`;
 }
 
-export const qualifiedName = (table: SchemaTable) => `${quoteName(table.schema)}.${quoteName(table.name)}`;
+/** FoxPro tables have no schema and are written by name alone. */
+export const qualifiedName = (table: SchemaTable) => (table.schema ? `${quoteName(table.schema)}.${quoteName(table.name)}` : quoteName(table.name));
+
+export const displayName = (table: SchemaTable) => (table.schema ? `${table.schema}.${table.name}` : table.name);
 
 const bareName = (name: string) => name.split('.').pop()!.replace(/[[\]]/g, '').toLowerCase();
 
@@ -90,7 +93,7 @@ function registerLanguage(): void {
         table.columns.map((c) => ({
           label: c.name,
           kind: Kind.Field,
-          detail: `${c.dataType} · ${table.name}`,
+          detail: `${c.display ?? c.dataType} · ${table.name}`,
           insertText: quoteName(c.name),
           range,
         }));
@@ -117,7 +120,7 @@ function registerLanguage(): void {
             range,
           })),
           ...schema.map((t) => ({
-            label: `${t.schema}.${t.name}`,
+            label: displayName(t),
             kind: t.isView ? Kind.Interface : Kind.Struct,
             detail: t.isView ? 'view' : 'bảng',
             insertText: qualifiedName(t),

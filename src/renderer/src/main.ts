@@ -3,7 +3,7 @@ import { convertFoxPro, type Diagnostic } from '../../converter';
 import { convertTsql } from '../../converter/reverse';
 import { columnKindResolver, columnWidthResolver } from '../../shared/column-kind';
 import { commandForShortcut, shortcutOf, type AppCommand } from '../../shared/commands';
-import { runFoxQuery, runTsqlQuery } from '../../shared/run-query';
+import { runFoxQuery, runOnFoxPro, runTsqlQuery } from '../../shared/run-query';
 import type { ConnectionProfile, ExecuteResult, SchemaTable } from '../../shared/types';
 import { updateActionLabel, type UpdateStatus } from '../../shared/update';
 import { createCompareEditor, createEditor, createModel, LANGUAGE_ID, monaco, qualifiedName, setSchema, TSQL_LANGUAGE_ID } from './editor';
@@ -17,7 +17,7 @@ const MARKER_OWNER = 'foxpro';
 const MIN_EXPLORER_WIDTH = 160;
 const MIN_OUTPUT_HEIGHT = 80;
 const COMPARE_DELAY_MS = 250;
-const LOCAL_SERVER = 'FoxPro cục bộ';
+const LOCAL_SERVER = 'FoxPro';
 
 /** The language a tab is written in; the other one is always derived from it. */
 type QueryLanguage = 'foxpro' | 'tsql';
@@ -115,7 +115,7 @@ const explorer = createExplorer(el('explorer-tree'), {
 function renderStatus(): void {
   statusBar.classList.toggle('connected', connection !== undefined);
   statusState.textContent = connection ? 'Đã kết nối' : 'Chưa kết nối';
-  connectionStatus.textContent = !connection ? '' : connection.localPath ? `FoxPro cục bộ: ${connection.localPath}` : `${connection.user} @ ${connection.server} / ${connection.database}`;
+  connectionStatus.textContent = !connection ? '' : connection.localPath ? `FoxPro: ${connection.localPath}` : `${connection.user} @ ${connection.server} / ${connection.database}`;
   statusCursor.textContent = active.currentCursor ? `Cursor: ${active.currentCursor}` : '';
 
   const result = active.result;
@@ -317,7 +317,16 @@ async function run(): Promise<void> {
   let warnings: Diagnostic[];
   const lines: string[] = [];
   try {
-    if (tab.language === 'foxpro') {
+    if (connection.localPath) {
+      // On a FoxPro database FoxPro is the engine: T-SQL has to translate before it can run.
+      const outcome = await runOnFoxPro(executeOnServer, tab, source, tab.language, { maxRows: MAX_ROWS, resolveColumnKind, resolveColumnWidth, onExecute });
+      result = outcome.result;
+      errors = shift(outcome.errors);
+      warnings = shift(outcome.warnings);
+      tab.translation = outcome.translation;
+      const other = LANGUAGES[LANGUAGES[tab.language].other].name;
+      lines.push(...formatDiagnostics(`Không chạy được vì chưa chuyển được sang ${other},`, errors), ...formatDiagnostics(`Lưu ý khi dịch sang ${other},`, warnings));
+    } else if (tab.language === 'foxpro') {
       const outcome = await runFoxQuery(executeOnServer, tab, source, { maxRows: MAX_ROWS, resolveColumnKind, onExecute });
       result = outcome.result;
       errors = shift(outcome.conversion.errors);
@@ -347,7 +356,7 @@ async function run(): Promise<void> {
   } else {
     lines.push(...result.messages);
     if (result.error) {
-      lines.push(`Lỗi máy chủ: ${result.error}`);
+      lines.push(`Lỗi từ ${connection?.localPath ? 'FoxPro' : 'máy chủ'}: ${result.error}`);
       if (result.sessionReset) lines.push('Phiên làm việc đã được mở lại sau lỗi, các cursor trước đó không còn.');
     } else {
       result.resultSets.forEach((set, i) => lines.push(`Bảng ${i + 1}: ${set.rows.length} dòng`));
@@ -544,7 +553,7 @@ async function openLocal(): Promise<void> {
     const tables = await window.db.loadSchema();
     forgetCursors();
     applySchema({ server: LOCAL_SERVER, user: '', database: opened.name, localPath: opened.path }, tables);
-    report([`Đã mở ${opened.path}: ${opened.tableCount} bảng, ${opened.rowCount} dòng.`, ...opened.notes.map((note) => `Lưu ý: ${note}`)].join('\n'));
+    report(`Đã mở ${opened.path}: ${tables.length} bảng. Truy vấn chạy bằng chính FoxPro; T-SQL được chuyển sang FoxPro trước khi chạy.`);
   } catch (e) {
     report(`Không mở được CSDL FoxPro: ${ipcErrorMessage(e)}`);
   } finally {

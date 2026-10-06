@@ -181,7 +181,7 @@ try {
 
   // ---- Server error, then recovery in the same tab --------------------------------------
   text = await run('SELECT KhongCoCotNay FROM HCSEM_Employees');
-  assert.match(text, /Lỗi máy chủ: .*KhongCoCotNay/);
+  assert.match(text, /Lỗi từ máy chủ: .*KhongCoCotNay/);
   assert.doesNotMatch(text, /Phiên làm việc đã được mở lại/);
   text = await run('SELECT COUNT(*) AS n FROM curLuong');
   assert.deepEqual(await visibleRows(), [[employeesWithSalary]]);

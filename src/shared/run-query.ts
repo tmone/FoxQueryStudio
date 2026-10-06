@@ -1,4 +1,4 @@
-import { convertFoxPro, type ColumnKindResolver, type ConvertResult } from '../converter';
+import { convertFoxPro, type ColumnKindResolver, type ConvertResult, type Diagnostic } from '../converter';
 import { convertTsql, type ReverseOptions, type ReverseResult } from '../converter/reverse';
 import type { DbApi, ExecuteResult } from './types';
 
@@ -94,4 +94,69 @@ export async function runTsqlQuery(
     session.cursors = [...new Set([...session.cursors, ...conversion.cursors])];
   }
   return { conversion, result };
+}
+
+export interface FoxProOutcome {
+  /** The source in the other language; empty when it does not translate. */
+  translation: string;
+  /** Why the source cannot run; set only for T-SQL that FoxPro has no form for. */
+  errors: Diagnostic[];
+  /** Translation problems that do not stop the run, and converter warnings. */
+  warnings: Diagnostic[];
+  /** Absent when nothing was sent. */
+  result?: ExecuteResult;
+}
+
+/**
+ * Runs a tab on a FoxPro database, where FoxPro is the engine: FoxPro source goes as
+ * written, T-SQL is first turned into FoxPro. `execute` takes FoxPro source.
+ */
+export async function runOnFoxPro(
+  execute: DbApi['execute'],
+  session: QuerySession,
+  source: string,
+  language: 'foxpro' | 'tsql',
+  options: Pick<QueryOptions, 'maxRows' | 'onExecute'> & ReverseOptions,
+): Promise<FoxProOutcome> {
+  let foxSource = source;
+  let translation: string;
+  let warnings: Diagnostic[];
+  let accept: () => void;
+
+  if (language === 'foxpro') {
+    // FoxPro is the authority on its own syntax; the T-SQL form is only shown alongside.
+    const conversion = convertFoxPro(source, { knownCursors: session.cursors, currentCursor: session.currentCursor, resolveColumnKind: options.resolveColumnKind });
+    translation = conversion.sql;
+    warnings = [...conversion.errors, ...conversion.warnings];
+    accept = () => {
+      if (conversion.errors.length) return;
+      session.cursors = conversion.cursors;
+      session.currentCursor = conversion.currentCursor;
+    };
+  } else {
+    const conversion = convertTsql(source, options);
+    if (conversion.errors.length) return { translation: '', errors: conversion.errors, warnings: conversion.warnings };
+    foxSource = conversion.foxpro;
+    translation = conversion.foxpro;
+    warnings = conversion.warnings;
+    accept = () => {
+      session.cursors = [...new Set([...session.cursors, ...conversion.cursors])];
+    };
+  }
+  if (!foxSource.trim()) return { translation, errors: [], warnings };
+
+  options.onExecute?.();
+  let result: ExecuteResult;
+  try {
+    result = await execute(session.id, foxSource, options.maxRows);
+  } catch (e) {
+    result = { resultSets: [], messages: [], error: (e as Error).message, truncated: false, elapsedMs: 0 };
+  }
+  if (result.sessionReset) {
+    session.cursors = [];
+    session.currentCursor = undefined;
+  } else if (!result.error) {
+    accept();
+  }
+  return { translation, errors: [], warnings, result };
 }

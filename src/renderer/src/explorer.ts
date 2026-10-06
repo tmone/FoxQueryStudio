@@ -1,11 +1,11 @@
 import type { SchemaTable } from '../../shared/types';
-import { qualifiedName } from './editor';
+import { displayName, qualifiedName } from './editor';
 
 export interface ExplorerConnection {
   server: string;
   user: string;
   database: string;
-  /** Folder of the FoxPro database, when the connection is the app's own local engine. */
+  /** The FoxPro database opened from disk, when that is the connection instead of a server. */
   localPath?: string;
 }
 
@@ -91,7 +91,7 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
   }
 
   function tableNode(table: SchemaTable): HTMLDetailsElement {
-    const { details, summary } = node(table.isView ? 'view' : 'table', `${table.schema}.${table.name}`);
+    const { details, summary } = node(table.isView ? 'view' : 'table', displayName(table));
     summary.title = 'Nhấp đúp để chèn tên; nhấp phải để xem thêm lệnh';
     summary.addEventListener('dblclick', () => actions.insertText(qualifiedName(table)));
     summary.addEventListener('contextmenu', (event) =>
@@ -107,7 +107,7 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
       const folder = node('folder', `Cột (${table.columns.length})`, true);
       const list = document.createElement('ul');
       for (const column of table.columns) {
-        const item = leaf('column', column.name, `${column.dataType}${column.nullable ? ', null' : ''}`);
+        const item = leaf('column', column.name, `${column.display ?? column.dataType}${column.nullable ? ', null' : ''}`);
         item.addEventListener('dblclick', () => actions.insertText(column.name));
         list.append(item);
       }
@@ -141,14 +141,14 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
       return;
     }
 
-    const visible = schema.filter((t) => `${t.schema}.${t.name}`.toLowerCase().includes(filter));
+    const visible = schema.filter((t) => displayName(t).toLowerCase().includes(filter));
     const group = (title: string, tables: SchemaTable[], open: boolean) => {
       const { details } = node('group', `${title} (${tables.length})`, open);
       details.append(...tables.map(tableNode));
       return details;
     };
 
-    const server = node('server', connection.localPath ? `FoxPro cục bộ (${connection.localPath})` : `${connection.server} (${connection.user})`, true);
+    const server = node('server', connection.localPath ? `FoxPro (${connection.localPath})` : `${connection.server} (${connection.user})`, true);
     server.summary.addEventListener('contextmenu', (event) => showContextMenu(event, [{ label: 'Làm mới', run: actions.refresh }]));
     const database = node('database', connection.database, true);
     cursorsNode = node('cursors', '', true).details;

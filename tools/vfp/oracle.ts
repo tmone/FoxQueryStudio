@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { RESULT_CURSOR, toRunnable } from '../../src/shared/fox-statements';
 
 // Runs FoxPro source in a real Visual FoxPro 9 and returns every result set, so
 // converted queries can be compared against what FoxPro itself produces.
@@ -29,7 +30,6 @@ export interface VfpResult {
   errors: string[];
 }
 
-const RESULT_CURSOR = 'fqs_r';
 const TIMEOUT_MS = 180_000;
 const CODE_PAGE = 'windows-1252';
 
@@ -80,52 +80,6 @@ PROCEDURE fqs_error(tnError, tcMessage)
   =FWRITE(gnOut, "#ERR|" + TRANSFORM(tnError) + "|" + STRCONV(tcMessage, 15) + CHR(13) + CHR(10))
 ENDPROC
 `;
-
-/** Joins continuation lines and drops comments, returning one string per statement. */
-function splitStatements(source: string): string[] {
-  const statements: string[] = [];
-  let pending: string[] = [];
-  for (const rawLine of source.split(/\r?\n/)) {
-    if (!pending.length && rawLine.trimStart().startsWith('*')) continue;
-    const line = rawLine.replace(/&&.*$/, '').trimEnd();
-    if (!line.trim()) continue;
-    pending.push(line);
-    if (!line.endsWith(';')) {
-      statements.push(pending.join('\n'));
-      pending = [];
-    }
-  }
-  if (pending.length) statements.push(pending.join('\n'));
-  return statements;
-}
-
-/**
- * Turns the statements into ones that leave their rows in a cursor instead of
- * opening a Browse window, and tells which statements produce a result set.
- */
-function toRunnable(source: string): { statement: string; dumps: boolean }[] {
-  let current: string | undefined;
-  return splitStatements(source).map((statement) => {
-    const browse = /^\s*BROWSE\b(.*)$/is.exec(statement);
-    if (browse) {
-      const fields = /\bFIELDS\b(.*?)(?=\bFOR\b|$)/is.exec(browse[1])?.[1].trim() || '*';
-      const condition = /\bFOR\b(.*)$/is.exec(browse[1])?.[1].trim();
-      const where = condition ? ` WHERE ${condition}` : '';
-      return { statement: `SELECT ${fields} FROM ${current}${where} INTO CURSOR ${RESULT_CURSOR}`, dumps: true };
-    }
-    const workArea = /^\s*SELECT\s+(\w+)\s*$/i.exec(statement);
-    if (workArea) {
-      current = workArea[1];
-      return { statement, dumps: false };
-    }
-    const into = /\bINTO\s+CURSOR\s+(\w+)/i.exec(statement);
-    if (into) {
-      current = into[1];
-      return { statement, dumps: false };
-    }
-    return { statement: `${statement} INTO CURSOR ${RESULT_CURSOR}`, dumps: true };
-  });
-}
 
 function buildProgram(scripts: VfpScript[], source: VfpSource, outputPath: string): string {
   const lines = [

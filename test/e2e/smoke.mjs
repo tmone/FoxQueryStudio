@@ -13,6 +13,9 @@ const workDir = mkdtempSync(join(tmpdir(), 'fqs-smoke-'));
 
 // Shells spawned by an Electron host (VS Code) set this and make electron.exe run as plain Node.
 const { ELECTRON_RUN_AS_NODE: _ignored, ...env } = process.env;
+// The FoxPro steps need Visual FoxPro 9; FQS_VFP_EXE says where it is when it is not installed in the usual place.
+const VFP_EXE = process.env.FQS_VFP_EXE ?? String.raw`D:\SureHCS\tools\vfp9\vfp9.exe`;
+env.FQS_VFP_EXE = VFP_EXE;
 const app = await electron.launch({ args: ['.'], env });
 const errors = [];
 const ok = (name) => console.log(`ok  ${name}`);
@@ -142,9 +145,9 @@ try {
   assert.equal(await page.isHidden('.compare'), true);
   ok('keeps untranslatable T-SQL unchanged and reports why');
 
-  // ---- Local FoxPro database: no server connection, the app's own engine -----------------
+  // ---- FoxPro database opened from disk: FoxPro itself is the engine, no server ----------
   const fixtures = resolve('test/fixtures/northwind');
-  if (existsSync(join(fixtures, 'customers.dbf'))) {
+  if (existsSync(join(fixtures, 'northwind.dbc')) && existsSync(VFP_EXE)) {
     const messages = () => page.textContent('#pane-messages');
     const visibleRows = () =>
       page.$$eval('#pane-results .grid-row', (rows) => rows.map((row) => [...row.querySelectorAll('.grid-cell:not(.rownum)')].map((cell) => cell.textContent)));
@@ -160,16 +163,16 @@ try {
     };
 
     assert.equal(await page.isDisabled('#btn-run'), true);
-    await app.evaluate(({ dialog }, path) => (dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })), fixtures);
+    await app.evaluate(({ dialog }, path) => (dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })), join(fixtures, 'northwind.dbc'));
     await page.keyboard.press('Control+Shift+O');
     await page.waitForFunction(() => /Đã mở|Không mở được/.test(document.getElementById('pane-messages').textContent), null, { timeout: 180_000 });
-    assert.match(await messages(), /Đã mở .*northwind: 11 bảng, 3308 dòng\./);
-    assert.match(await page.textContent('#explorer-tree .server > summary'), /^FoxPro cục bộ \(.*northwind\)$/);
+    assert.match(await messages(), /Đã mở .*northwind\.dbc: 11 bảng\./);
+    assert.match(await page.textContent('#explorer-tree .server > summary'), /^FoxPro \(.*northwind\.dbc\)$/);
     assert.equal(await page.textContent('#explorer-tree .group > summary'), 'Bảng (11)');
     assert.match(await page.textContent('#status-state'), /Đã kết nối/);
-    assert.match(await page.textContent('#connection-status'), /^FoxPro cục bộ: .*northwind$/);
+    assert.match(await page.textContent('#connection-status'), /^FoxPro: .*northwind\.dbc$/);
     assert.equal(await page.isDisabled('#btn-run'), false);
-    ok('opens a folder of .dbf files with no server connection');
+    ok('opens a FoxPro database file with no server connection');
 
     // FoxPro: "Ger" matches Germany, because FoxPro compares up to the shorter string.
     await page.keyboard.press('Control+N');
@@ -183,7 +186,7 @@ try {
     assert.equal(await page.textContent('#query-state'), 'Truy vấn chạy xong');
     text = await run('SELECT TOP 3 ma, nuoc FROM duc ORDER BY ma');
     assert.deepEqual(await visibleRows(), [['ALFKI', 'Germany'], ['BLAUS', 'Germany'], ['DRACD', 'Germany']]);
-    ok('runs FoxPro source on the local tables and keeps its cursor between runs');
+    ok('runs FoxPro source in FoxPro itself and keeps its cursor between runs');
     await page.screenshot({ path: OUT_DIR + '/smoke-local-fox.png' });
 
     // T-SQL in another tab, on the same tables.
@@ -196,9 +199,9 @@ try {
     await page.click('.output-tabs > button[data-pane=tsql]');
     assert.equal(await page.textContent('#pane-tsql'), 'SELECT COUNT(*) AS n FROM orders WHERE orderdate >= {^1997-01-01}');
     text = await run('SELECT * FROM khong_co_bang');
-    assert.match(text, /Lỗi máy chủ: .*khong_co_bang/);
+    assert.match(text, /Lỗi từ FoxPro: .*khong_co_bang/i);
     assert.equal(await page.textContent('#query-state'), 'Truy vấn có lỗi');
-    ok('runs T-SQL on the same tables and shows its FoxPro form');
+    ok('runs T-SQL on the FoxPro database by turning it into FoxPro');
     await page.screenshot({ path: OUT_DIR + '/smoke-local-tsql.png' });
 
     await page.keyboard.press('Control+W');
@@ -206,7 +209,7 @@ try {
     await page.click('#btn-disconnect');
     await page.waitForFunction(() => document.getElementById('status-state').textContent === 'Chưa kết nối');
     assert.equal(await page.isDisabled('#btn-run'), true);
-    ok('closes the local database with Disconnect');
+    ok('closes the FoxPro database with Disconnect');
   } else {
     console.log('skip local FoxPro database (run `npm run fixtures`)');
   }

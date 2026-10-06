@@ -4,13 +4,14 @@ import type { ConnectionProfile, DbApi } from '../shared/types';
 import sql from 'mssql';
 import { createDatabase, tediousConfig } from './db';
 import { setupLocalDatabase } from './local-db';
-import { createLocalEngine } from './local-engine';
+import { createFoxEngine, findVfp } from './fox-engine';
 import { setupMenu } from './menu';
 import { setupUpdater } from './updater';
 
 const server = createDatabase(sql, tediousConfig);
-const localEngine = createLocalEngine();
-/** Where queries go: the SQL Server connection, or the local engine while a FoxPro folder is open. */
+/** FoxPro itself, for a database opened from disk; a copy shipped with the app is looked for first. */
+const foxEngine = createFoxEngine(() => findVfp([join(process.resourcesPath, 'vfp', 'vfp9.exe')]));
+/** Where queries go: the SQL Server connection, or FoxPro while a FoxPro database is open. */
 let db: DbApi = server;
 let mainWindow: BrowserWindow | undefined;
 
@@ -54,7 +55,7 @@ function createWindow(): void {
 
 function registerIpc(): void {
   ipcMain.handle('db:connect', async (_e, profile: ConnectionProfile) => {
-    await localEngine.disconnect();
+    await foxEngine.disconnect();
     db = server;
     await server.connect(profile);
   });
@@ -67,17 +68,14 @@ function registerIpc(): void {
 void app.whenReady().then(() => {
   registerIpc();
   setupMenu(() => mainWindow);
-  setupLocalDatabase(() => mainWindow, localEngine, async () => {
+  setupLocalDatabase(() => mainWindow, foxEngine, async () => {
     await server.disconnect();
-    db = localEngine;
+    db = foxEngine;
   });
   setupUpdater(() => mainWindow);
   createWindow();
 });
 
 app.on('window-all-closed', () => {
-  void db.disconnect().finally(() => {
-    localEngine.shutdown();
-    app.quit();
-  });
+  void Promise.allSettled([server.disconnect(), foxEngine.disconnect()]).finally(() => app.quit());
 });
