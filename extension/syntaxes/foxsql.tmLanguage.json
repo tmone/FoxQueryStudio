@@ -3,21 +3,21 @@
   "name": "FoxPro SQL",
   "scopeName": "source.foxsql",
   "patterns": [
-    { "name": "comment.line.asterisk.foxsql", "match": "^\s*\*.*$" },
+    { "name": "comment.line.asterisk.foxsql", "match": "^\\s*\\*.*$" },
     { "name": "comment.line.double-ampersand.foxsql", "match": "&&.*$" },
-    { "name": "constant.other.date.foxsql", "match": "\{\^[^}]*\}" },
-    { "name": "constant.language.foxsql", "match": "(?i)\.(T|F|Y|N|NULL|AND|OR|NOT)\." },
+    { "name": "constant.other.date.foxsql", "match": "\\{\\^[^}]*\\}" },
+    { "name": "constant.language.foxsql", "match": "(?i)\\.(T|F|Y|N|NULL|AND|OR|NOT)\\." },
     { "name": "string.quoted.single.foxsql", "begin": "'", "end": "'" },
     { "name": "string.quoted.double.foxsql", "begin": "\"", "end": "\"" },
-    { "name": "constant.numeric.foxsql", "match": "\$?\b\d+(\.\d+)?\b" },
+    { "name": "constant.numeric.foxsql", "match": "\\$?\\b\\d+(\\.\\d+)?\\b" },
     {
       "name": "keyword.other.foxsql",
-      "match": "(?i)\b(SELECT|FROM|WHERE|INTO|CURSOR|ORDER|GROUP|BY|HAVING|JOIN|INNER|LEFT|RIGHT|FULL|OUTER|ON|AS|AND|OR|NOT|IN|LIKE|BETWEEN|IS|NULL|DISTINCT|TOP|UNION|ALL|ASC|DESC|BROWSE|FIELDS|FOR|CASE|WHEN|THEN|ELSE|END|EXISTS|READWRITE)\b"
+      "match": "(?i)\\b(SELECT|FROM|WHERE|INTO|CURSOR|ORDER|GROUP|BY|HAVING|JOIN|INNER|LEFT|RIGHT|FULL|OUTER|ON|AS|AND|OR|NOT|IN|LIKE|BETWEEN|IS|NULL|DISTINCT|TOP|UNION|ALL|ASC|DESC|BROWSE|FIELDS|FOR|CASE|WHEN|THEN|ELSE|END|EXISTS|READWRITE)\\b"
     },
     {
       "name": "support.function.foxsql",
-      "match": "(?i)\b(ALLTRIM|LTRIM|RTRIM|TRIM|UPPER|LOWER|LEFT|RIGHT|LEN|SUBSTR|AT|ATC|RAT|OCCURS|STRTRAN|PADL|PADR|CHR|ASC|TRANSFORM|STR|VAL|NVL|EVL|EMPTY|ISNULL|INLIST|ICASE|IIF|BETWEEN|INT|MOD|ROUND|ABS|SIGN|SQRT|CEILING|FLOOR|DATE|DATETIME|YEAR|MONTH|DAY|DOW|QUARTER|HOUR|MINUTE|SEC|GOMONTH|TTOD|DTOT|DTOC|DTOS|CTOD|COUNT|SUM|AVG|MIN|MAX)(?=\s*\()"
+      "match": "(?i)\\b(ALLTRIM|LTRIM|RTRIM|TRIM|UPPER|LOWER|LEFT|RIGHT|LEN|SUBSTR|AT|ATC|RAT|OCCURS|STRTRAN|PADL|PADR|CHR|ASC|TRANSFORM|STR|VAL|NVL|EVL|EMPTY|ISNULL|INLIST|ICASE|IIF|BETWEEN|INT|MOD|ROUND|ABS|SIGN|SQRT|CEILING|FLOOR|DATE|DATETIME|YEAR|MONTH|DAY|DOW|QUARTER|HOUR|MINUTE|SEC|GOMONTH|TTOD|DTOT|DTOC|DTOS|CTOD|COUNT|SUM|AVG|MIN|MAX)(?=\\s*\\()"
     },
-    { "name": "keyword.operator.foxsql", "match": "==|!=|<>|<=|>=|[=<>+\-*/%^#$!]" }
+    { "name": "keyword.operator.foxsql", "match": "==|!=|<>|<=|>=|[=<>+\\-*/%^#$!]" }
   ]
 }
