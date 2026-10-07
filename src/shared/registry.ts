@@ -11,5 +11,7 @@ export type Registration =
 /** Registry operations exposed to the window. */
 export interface RegistryApi {
   list(): Promise<Registration[]>;
+  /** Registrations the program was told to open at start (FoxQueryStudio.config.json next to it). */
+  startup(): Promise<string[]>;
   remove(id: string): Promise<void>;
 }

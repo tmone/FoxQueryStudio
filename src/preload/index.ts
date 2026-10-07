@@ -16,6 +16,7 @@ const api: DbApi = {
 
 const registry: RegistryApi = {
   list: () => ipcRenderer.invoke('registry:list'),
+  startup: () => ipcRenderer.invoke('registry:startup'),
   remove: (id) => ipcRenderer.invoke('registry:remove', id),
 };
 

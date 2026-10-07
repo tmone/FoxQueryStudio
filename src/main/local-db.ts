@@ -1,6 +1,6 @@
 import { dialog, ipcMain, type BrowserWindow } from 'electron';
 import type { ConnectionInfo, ConnectionProfile } from '../shared/types';
-import type { Connections } from './connections';
+import { foxDatabaseTarget, type Connections } from './connections';
 import { findVfp } from './fox-engine';
 import { foxProPathOf, listRegistrations, readSettings, registerFoxPro, registerSql, removeRegistration, sqlProfileOf, writeSettings } from './settings';
 
@@ -22,7 +22,7 @@ export function locateVfp(shipped: string[]): string | undefined {
  * FoxPro is. A FoxPro database is a container (.dbc) or any table (.dbf): a table that
  * belongs to a container opens the container; a free table opens its folder.
  */
-export function setupConnectionIpc(getWindow: () => BrowserWindow | undefined, connections: Connections, shippedVfp: string[]): void {
+export function setupConnectionIpc(getWindow: () => BrowserWindow | undefined, connections: Connections, shippedVfp: string[], openOnStart: string[] = []): void {
   async function chooseVfp(): Promise<string | undefined> {
     const window = getWindow();
     if (!window) return undefined;
@@ -48,6 +48,8 @@ export function setupConnectionIpc(getWindow: () => BrowserWindow | undefined, c
   ipcMain.handle('vfp:getPath', () => locateVfp(shippedVfp));
   ipcMain.handle('vfp:choose', chooseVfp);
 
+  // Databases listed next to the program are remembered like any other and opened by the window at start.
+  ipcMain.handle('registry:startup', () => openOnStart.map((path) => registerFoxPro(foxDatabaseTarget(path).info.localPath!)));
   ipcMain.handle('registry:list', () => listRegistrations());
   ipcMain.handle('registry:remove', async (_e, id: string) => {
     await connections.disconnect(id);

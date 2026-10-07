@@ -6,10 +6,13 @@ import { createDatabase, tediousConfig } from './db';
 import { createFoxEngine } from './fox-engine';
 import { locateVfp, setupConnectionIpc } from './local-db';
 import { setupMenu } from './menu';
+import { readSideConfig } from './side-config';
 import { setupUpdater } from './updater';
 
-/** A copy of FoxPro shipped inside the program is looked for before an installed one. */
-const SHIPPED_VFP = [join(process.resourcesPath, 'vfp', 'vfp9.exe')];
+/** Settings placed next to the program by whoever handed it out. */
+const sideConfig = readSideConfig();
+/** FoxPro next to the program, or inside it, is looked for before an installed one. */
+const SHIPPED_VFP = [...(sideConfig.vfpPath ? [sideConfig.vfpPath] : []), join(process.resourcesPath, 'vfp', 'vfp9.exe')];
 const connections = createConnections(
   () => createDatabase(sql, tediousConfig),
   () => createFoxEngine(() => locateVfp(SHIPPED_VFP)),
@@ -70,7 +73,7 @@ if (process.env.FQS_USER_DATA) app.setPath('userData', process.env.FQS_USER_DATA
 void app.whenReady().then(() => {
   registerIpc();
   setupMenu(() => mainWindow);
-  setupConnectionIpc(() => mainWindow, connections, SHIPPED_VFP);
+  setupConnectionIpc(() => mainWindow, connections, SHIPPED_VFP, sideConfig.openOnStart);
   setupUpdater(() => mainWindow);
   createWindow();
 });

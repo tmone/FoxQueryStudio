@@ -826,4 +826,8 @@ void window.updates.getStatus().then(renderUpdate);
 
 savedSelect.addEventListener('change', () => fillConnectForm(sqlRegistrations().find((r) => r.id === savedSelect.value)));
 newTab();
-void loadRegistrations();
+void (async () => {
+  const startup = await window.registry.startup();
+  await loadRegistrations();
+  for (const id of startup) await connectSaved(id);
+})();
