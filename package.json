@@ -17,7 +17,6 @@
     "e2e:real": "node test/e2e/real-server.mjs"
   },
   "dependencies": {
-    "electron-updater": "^6.8.9",
     "mssql": "^12.7.3"
   },
   "devDependencies": {

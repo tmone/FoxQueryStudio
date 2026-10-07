@@ -1,73 +1,73 @@
-// Proves the remote update for real: builds two installers, installs the older one,
-// publishes the newer one on a local web server, and lets the installed app find,
-// download and install it. Ends by uninstalling.
+// Proves the self-update of the single-file program for real: builds two versions of the
+// portable .exe, runs the older one against a stand-in for GitHub's release API on this
+// machine, and lets it find, download, verify and swap in the newer one.
 //
 //   npm run build; node test/e2e/update.mjs
 //
 // Takes several minutes: it packages the app twice.
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
-import { createReadStream, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { _electron as electron } from 'playwright-core';
+import { chromium } from 'playwright-core';
 
 const OLD_VERSION = '0.1.0';
 const NEW_VERSION = '0.2.0';
 const PORT = 8765;
-const FEED_URL = `http://127.0.0.1:${PORT}/`;
+const DEBUG_PORT = 9555;
+const FEED_URL = `http://127.0.0.1:${PORT}/latest`;
 const WORK_DIR = resolve(process.env.FQS_UPDATE_E2E_DIR ?? join(tmpdir(), 'fqs-update-e2e'));
-const INSTALL_DIR = join(WORK_DIR, 'installed');
-const EXE = join(INSTALL_DIR, 'FoxQuery Studio.exe');
-const UNINSTALLER = join(INSTALL_DIR, 'Uninstall FoxQuery Studio.exe');
-const setupName = (version) => `FoxQueryStudio-Setup-${version}.exe`;
+const RUN_DIR = join(WORK_DIR, 'run');
+const PROGRAM = join(RUN_DIR, 'FoxQueryStudio.exe');
+const IMAGE_NAME = 'FoxQuery Studio.exe';
+const programName = (version) => `FoxQueryStudio-${version}.exe`;
 
 // Shells spawned by an Electron host (VS Code) set this and make electron.exe run as plain Node.
 const { ELECTRON_RUN_AS_NODE: _ignored, ...cleanEnv } = process.env;
 const log = (message) => console.log(`[${new Date().toISOString().slice(11, 19)}] ${message}`);
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
 
-function buildInstaller(version) {
+function buildProgram(version) {
   const outDir = join(WORK_DIR, `build-${version}`);
-  if (existsSync(join(outDir, setupName(version)))) return outDir;
-  log(`building installer ${version}`);
+  const file = join(outDir, programName(version));
+  if (existsSync(file)) return file;
+  log(`building ${programName(version)}`);
   execFileSync(
     process.execPath,
     ['node_modules/electron-builder/cli.js', '--win', '--config', 'electron-builder.config.cjs', '--publish', 'never', `-c.extraMetadata.version=${version}`],
-    { env: { ...cleanEnv, FQS_UPDATE_URL: FEED_URL, FQS_DIST_DIR: outDir }, stdio: 'ignore' },
+    { env: { ...cleanEnv, FQS_DIST_DIR: outDir }, stdio: 'ignore' },
   );
-  return outDir;
+  return file;
 }
 
-/** Serves a release folder the way any static web server would, and records what was asked for. */
-function serve(dir) {
-  const requests = [];
+/**
+ * Answers like GitHub: the "latest release" document, and the file it points to.
+ * `release` is swapped by the test to play different situations.
+ */
+function serve(state) {
   const server = createServer((request, response) => {
-    const name = decodeURIComponent(new URL(request.url, FEED_URL).pathname.slice(1));
-    const file = join(dir, name);
-    requests.push(name);
-    if (name.includes('..') || !existsSync(file) || !statSync(file).isFile()) {
-      response.writeHead(404).end();
-      return;
+    const path = new URL(request.url, FEED_URL).pathname;
+    state.requests.push(path);
+    if (path === '/latest') {
+      if (!state.release) return void response.writeHead(404, { 'Content-Type': 'application/json' }).end('{"message":"Not Found"}');
+      return void response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(state.release));
     }
-    const size = statSync(file).size;
-    const range = /bytes=(\d+)-(\d*)/.exec(request.headers.range ?? '');
-    if (range) {
-      const start = Number(range[1]);
-      const end = range[2] ? Number(range[2]) : size - 1;
-      response.writeHead(206, { 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': end - start + 1, 'Accept-Ranges': 'bytes' });
-      createReadStream(file, { start, end }).pipe(response);
-    } else {
-      response.writeHead(200, { 'Content-Length': size, 'Accept-Ranges': 'bytes' });
-      createReadStream(file).pipe(response);
+    if (path === '/download' && state.file) {
+      response.writeHead(200, { 'Content-Length': statSync(state.file).size });
+      return void createReadStream(state.file).pipe(response);
     }
+    response.writeHead(404).end();
   });
-  return new Promise((done) => server.listen(PORT, '127.0.0.1', () => done({ server, requests })));
+  return new Promise((done) => server.listen(PORT, '127.0.0.1', () => done(server)));
 }
 
-const isRunning = () => spawnSync('tasklist', ['/FI', 'IMAGENAME eq FoxQuery Studio.exe', '/NH'], { encoding: 'utf8' }).stdout.includes('FoxQuery Studio.exe');
-const stopApp = () => spawnSync('taskkill', ['/IM', 'FoxQuery Studio.exe', '/F', '/T'], { stdio: 'ignore' });
-const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+const release = (version, digest) => ({ tag_name: `v${version}`, assets: [{ name: programName(version), browser_download_url: `http://127.0.0.1:${PORT}/download`, digest }] });
+const isRunning = () => spawnSync('tasklist', ['/FI', `IMAGENAME eq ${IMAGE_NAME}`, '/NH'], { encoding: 'utf8' }).stdout.includes(IMAGE_NAME);
+const stopApp = () => spawnSync('taskkill', ['/IM', IMAGE_NAME, '/F', '/T'], { stdio: 'ignore' });
 
 async function waitFor(condition, what, timeoutMs = 180_000) {
   const deadline = Date.now() + timeoutMs;
@@ -77,97 +77,103 @@ async function waitFor(condition, what, timeoutMs = 180_000) {
   }
 }
 
-async function launch() {
-  const app = await electron.launch({ executablePath: EXE, env: cleanEnv });
-  const page = await app.firstWindow();
-  // The version label is filled once the main process has answered.
+/** Attaches to the window of the running program; the portable launcher starts it as a child process. */
+async function attach() {
+  let browser;
+  await waitFor(async () => {
+    browser = await chromium.connectOverCDP(`http://127.0.0.1:${DEBUG_PORT}`).catch(() => undefined);
+    return browser?.contexts()[0]?.pages().length > 0;
+  }, 'the program window');
+  const page = browser.contexts()[0].pages()[0];
   await page.waitForFunction(() => document.getElementById('app-version')?.textContent !== '');
-  return { app, page };
+  return { browser, page };
+}
+
+async function launch() {
+  spawn(PROGRAM, [`--remote-debugging-port=${DEBUG_PORT}`], { env: { ...cleanEnv, FQS_UPDATE_API: FEED_URL }, detached: true, stdio: 'ignore' }).unref();
+  return attach();
+}
+
+async function quit(browser) {
+  await browser.close().catch(() => undefined);
+  stopApp();
+  await waitFor(() => !isRunning(), 'the program to stop', 30_000);
 }
 
 mkdirSync(WORK_DIR, { recursive: true });
-const oldBuild = buildInstaller(OLD_VERSION);
-const newBuild = buildInstaller(NEW_VERSION);
+mkdirSync('test-results', { recursive: true });
+const oldProgram = buildProgram(OLD_VERSION);
+const newProgram = buildProgram(NEW_VERSION);
 
 stopApp();
-rmSync(INSTALL_DIR, { recursive: true, force: true });
-log(`installing ${OLD_VERSION} into ${INSTALL_DIR}`);
-// /D must be the last argument and unquoted, by NSIS rules.
-spawnSync(join(oldBuild, setupName(OLD_VERSION)), ['/S', `/D=${INSTALL_DIR}`], { stdio: 'ignore', windowsVerbatimArguments: true });
-await waitFor(() => existsSync(EXE), 'the installed program');
+rmSync(RUN_DIR, { recursive: true, force: true });
+mkdirSync(RUN_DIR, { recursive: true });
+copyFileSync(oldProgram, PROGRAM);
 
-let server;
+const state = { release: undefined, file: undefined, requests: [] };
+const server = await serve(state);
 try {
-  // ---- 1. No release on the server: the app says so and offers nothing ---------------------
-  const empty = join(WORK_DIR, 'empty-feed');
-  mkdirSync(empty, { recursive: true });
-  ({ server } = await serve(empty));
-  let { app, page } = await launch();
+  // ---- 1. No release published: the check fails quietly, nothing is offered ---------------
+  let { browser, page } = await launch();
   assert.equal(await page.textContent('#app-version'), `v${OLD_VERSION}`);
   await page.waitForFunction(() => document.getElementById('app-version').classList.contains('failed'), null, { timeout: 60_000 });
+  assert.match(await page.getAttribute('#app-version', 'title'), /Chưa có bản phát hành/);
   assert.equal(await page.isHidden('#btn-update'), true);
-  log('ok  reports a failed check without offering an update when the server has no release');
-  await app.close();
-  await new Promise((done) => server.close(done));
+  log('ok  checks at start and reports that no release exists');
 
-  // ---- 2. A newer release is published: find, download, install ---------------------------
-  let requests;
-  ({ server, requests } = await serve(newBuild));
-  ({ app, page } = await launch());
+  // ---- 2. The same version is the latest: up to date ---------------------------------------
+  state.release = release(OLD_VERSION, `sha256:${sha256(oldProgram)}`);
+  await page.click('#app-version');
+  await page.waitForFunction(() => document.getElementById('app-version').title.includes('bản mới nhất'), null, { timeout: 60_000 });
+  assert.equal(await page.isHidden('#btn-update'), true);
+  log('ok  reports it is up to date when the latest release is its own version');
+
+  // ---- 3. A newer release whose file does not match its checksum is thrown away -----------
+  state.release = release(NEW_VERSION, `sha256:${'0'.repeat(64)}`);
+  state.file = newProgram;
+  await page.click('#app-version');
   await page.waitForSelector('#btn-update:not([hidden])', { timeout: 60_000 });
   assert.equal(await page.textContent('#btn-update'), `Tải bản ${NEW_VERSION}`);
-  assert.ok(!requests.some((name) => name.endsWith('.exe')), 'nothing is downloaded before the user asks');
-  log(`ok  finds ${NEW_VERSION} on the server and waits for the user`);
+  assert.ok(!state.requests.includes('/download'), 'nothing is downloaded before the user asks');
+  log(`ok  finds ${NEW_VERSION} and waits for the user`);
   await page.screenshot({ path: 'test-results/update-available.png' });
+  await page.click('#btn-update');
+  await page.waitForFunction(() => document.getElementById('app-version').title.includes('không khớp mã kiểm tra'), null, { timeout: 300_000 });
+  assert.equal(existsSync(`${PROGRAM}.new`), false);
+  assert.equal(sha256(PROGRAM), sha256(oldProgram));
+  log('ok  discards a download that does not match the published checksum');
 
+  // ---- 4. The genuine release: download, verify, swap, restart -----------------------------
+  state.release = release(NEW_VERSION, `sha256:${sha256(newProgram)}`);
+  await page.click('#app-version');
+  await page.waitForSelector('#btn-update:not([hidden])', { timeout: 60_000 });
   await page.click('#btn-update');
   await page.waitForFunction((label) => document.getElementById('btn-update').textContent === label, `Khởi động lại để cập nhật ${NEW_VERSION}`, { timeout: 300_000 });
-  assert.ok(requests.includes(setupName(NEW_VERSION)), 'the installer was downloaded from the server');
-  log('ok  downloads the new installer on request');
+  assert.equal(sha256(`${PROGRAM}.new`), sha256(newProgram));
+  log('ok  downloads the new program on request and verifies it');
   await page.screenshot({ path: 'test-results/update-downloaded.png' });
 
-  await page.click('#btn-update').catch(() => undefined); // the app quits while handling the click
-  await app.close().catch(() => undefined);
-  log('installing the update…');
-  // The updater quits the app, runs the installer silently and starts the new version.
-  await waitFor(() => !isRunning(), 'the old version to quit', 60_000).catch(() => undefined);
+  await page.click('#btn-update').catch(() => undefined); // the program quits while handling the click
+  await browser.close().catch(() => undefined);
+  await waitFor(() => existsSync(PROGRAM) && sha256(PROGRAM) === sha256(newProgram), 'the new program to be in place', 60_000);
   await waitFor(isRunning, 'the new version to start by itself');
-  log('ok  restarts by itself after installing');
-  await sleep(3000);
+  log('ok  swaps the program file and restarts by itself');
+  await sleep(8000);
   stopApp();
-  await waitFor(() => !isRunning(), 'the restarted app to stop', 30_000);
+  await waitFor(() => !isRunning(), 'the restarted program to stop', 30_000);
+  assert.equal(existsSync(`${PROGRAM}.old`), false, 'the replaced copy is cleaned up by the new version');
 
-  // ---- 3. The installed program is now the new version and is up to date ------------------
-  ({ app, page } = await launch());
+  // ---- 5. The program is now the new version and is up to date ---------------------------
+  ({ browser, page } = await launch());
   assert.equal(await page.textContent('#app-version'), `v${NEW_VERSION}`);
-  assert.equal(await app.evaluate(({ app: electronApp }) => electronApp.getVersion()), NEW_VERSION);
   await page.waitForFunction(() => document.getElementById('app-version').title.includes('bản mới nhất'), null, { timeout: 60_000 });
   assert.equal(await page.isHidden('#btn-update'), true);
   log(`ok  runs as ${NEW_VERSION} and reports it is up to date`);
   await page.screenshot({ path: 'test-results/update-done.png' });
+  await quit(browser);
 
-  // ---- 4. A plain-HTTP address on another machine is refused ------------------------------
-  const userData = await app.evaluate(({ app: electronApp }) => electronApp.getPath('userData'));
-  await app.close();
-  const override = join(userData, 'update.json');
-  writeFileSync(override, JSON.stringify({ url: 'http://192.168.1.10/updates/' }));
-  try {
-    ({ app, page } = await launch());
-    await page.waitForFunction(() => document.getElementById('app-version').title.includes('HTTPS'), null, { timeout: 30_000 });
-    assert.equal(await page.isDisabled('#app-version'), true);
-    log('ok  refuses an update address that is not HTTPS');
-    await app.close();
-  } finally {
-    rmSync(override, { force: true });
-  }
-
-  console.log(`\nUpdate ${OLD_VERSION} -> ${NEW_VERSION} verified. Server requests: ${[...new Set(requests)].join(', ')}`);
+  console.log('\nupdate ok');
 } finally {
   stopApp();
-  server?.close();
-  if (existsSync(UNINSTALLER)) {
-    spawnSync(UNINSTALLER, ['/S'], { stdio: 'ignore' });
-    await waitFor(() => !existsSync(EXE), 'the uninstall to finish', 60_000).catch(() => log('uninstall did not finish in time'));
-  }
-  log(`installed files left: ${existsSync(INSTALL_DIR) ? readdirSync(INSTALL_DIR).length : 0}`);
+  await new Promise((done) => server.close(done));
 }

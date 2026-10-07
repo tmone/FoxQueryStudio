@@ -8,3 +8,4 @@ test/fixtures/
 extension/.vscode-test/
 extension/dist/
 extension/test-results/
+build/vfp/
