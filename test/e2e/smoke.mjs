@@ -16,6 +16,7 @@ const { ELECTRON_RUN_AS_NODE: _ignored, ...env } = process.env;
 // The FoxPro steps need Visual FoxPro 9; FQS_VFP_EXE says where it is when it is not installed in the usual place.
 const VFP_EXE = process.env.FQS_VFP_EXE ?? String.raw`D:\SureHCS\tools\vfp9\vfp9.exe`;
 env.FQS_VFP_EXE = VFP_EXE;
+env.FQS_USER_DATA = join(workDir, 'user-data');
 const app = await electron.launch({ args: ['.'], env });
 const errors = [];
 const ok = (name) => console.log(`ok  ${name}`);
@@ -77,7 +78,7 @@ try {
   await page.keyboard.press('Control+Home');
   await page.keyboard.press('ArrowDown');
   assert.equal(await page.textContent('#status-position'), 'Dòng 2, Cột 1');
-  assert.match(await page.textContent('#explorer-tree'), /Kết nối để xem/);
+  assert.match(await page.textContent('#explorer-tree'), /Kết nối SQL Server hoặc mở CSDL FoxPro/);
   ok('shows connection state, editor position and version in the status bar');
 
   // ---- Save and open, with the native dialogs answered by the test ------------------------
@@ -167,7 +168,7 @@ try {
     await page.keyboard.press('Control+Shift+O');
     await page.waitForFunction(() => /Đã mở|Không mở được/.test(document.getElementById('pane-messages').textContent), null, { timeout: 180_000 });
     assert.match(await messages(), /Đã mở .*northwind\.dbc: 11 bảng\./);
-    assert.match(await page.textContent('#explorer-tree .server > summary'), /^FoxPro \(.*northwind\.dbc\)$/);
+    assert.match(await page.textContent('#explorer-tree .server:not(.offline) > summary'), /^FoxPro \(.*northwind\.dbc\)$/);
     assert.equal(await page.textContent('#explorer-tree .group > summary'), 'Bảng (11)');
     assert.match(await page.textContent('#status-state'), /Đã kết nối/);
     assert.match(await page.textContent('#connection-status'), /^FoxPro: .*northwind\.dbc$/);
@@ -206,10 +207,60 @@ try {
 
     await page.keyboard.press('Control+W');
     await page.keyboard.press('Control+W');
+    // Completion knows the tables and columns of the open FoxPro database, in both languages.
+    const suggestions = async (text) => {
+      await page.keyboard.press('Control+N');
+      await page.keyboard.insertText(text);
+      await page.keyboard.press('Control+Space');
+      await page.waitForSelector('.suggest-widget.visible .monaco-list-row', { timeout: 10_000 });
+      const labels = await page.$$eval('.suggest-widget.visible .monaco-list-row .label-name', (rows) => rows.map((r) => r.textContent));
+      await page.keyboard.press('Escape');
+      await page.keyboard.press('Control+W');
+      return labels;
+    };
+    assert.ok((await suggestions('SELECT * FROM cust')).includes('customers'), 'FoxPro tab offers the table');
+    assert.ok((await suggestions('SELECT c. FROM customers c')).includes('companyname') || (await suggestions('SELECT comp FROM customers')).includes('companyname'), 'FoxPro tab offers the columns');
+    await page.keyboard.press('Control+N');
+    await page.keyboard.press('Control+Shift+L');
+    await page.keyboard.press('Control+W');
+    const tsqlTab = async (text) => {
+      await page.keyboard.press('Control+N');
+      await page.keyboard.press('Control+Shift+L');
+      await page.keyboard.insertText(text);
+      await page.keyboard.press('Control+Space');
+      await page.waitForSelector('.suggest-widget.visible .monaco-list-row', { timeout: 10_000 });
+      const labels = await page.$$eval('.suggest-widget.visible .monaco-list-row .label-name', (rows) => rows.map((r) => r.textContent));
+      await page.keyboard.press('Escape');
+      await page.keyboard.press('Control+W');
+      return labels;
+    };
+    assert.ok((await tsqlTab('SELECT * FROM ord')).includes('orders'), 'T-SQL tab offers the table');
+    ok('completes table and column names of the FoxPro database in both languages');
+
     await page.click('#btn-disconnect');
     await page.waitForFunction(() => document.getElementById('status-state').textContent === 'Chưa kết nối');
     assert.equal(await page.isDisabled('#btn-run'), true);
-    ok('closes the FoxPro database with Disconnect');
+    // The database stays in the tree, closed, until it is removed.
+    assert.match(await page.textContent('#explorer-tree .server.offline > summary'), /northwind\.dbc/);
+    ok('closes the FoxPro database with Disconnect and keeps it listed');
+
+    // A double-click reopens it; opening a table of a container opens the container itself.
+    await page.dblclick('#explorer-tree .server.offline > summary');
+    await page.waitForSelector('#explorer-tree .server:not(.offline)', { timeout: 60_000 });
+    assert.equal(await page.textContent('#explorer-tree .group > summary'), 'Bảng (11)');
+    await app.evaluate(({ dialog }, path) => (dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })), join(fixtures, 'customers.dbf'));
+    await page.keyboard.press('Control+Shift+O');
+    await page.waitForFunction(() => /Đã mở|Không mở được/.test(document.getElementById('pane-messages').textContent), null, { timeout: 60_000 });
+    assert.equal(await page.locator('#explorer-tree .server').count(), 1, 'the table belongs to the container already listed');
+    assert.match(await messages(), /Đã mở .*northwind\.dbc/);
+    ok('reopens a remembered database and resolves a table to its container');
+
+    // Right-click → remove forgets it.
+    await page.click('#explorer-tree .server > summary', { button: 'right' });
+    await page.click('.context-menu button:has-text("Xóa khỏi danh sách")');
+    await page.waitForFunction(() => document.querySelectorAll('#explorer-tree .server').length === 0);
+    assert.equal(await page.textContent('#status-state'), 'Chưa kết nối');
+    ok('removes a remembered database from the tree');
   } else {
     console.log('skip local FoxPro database (run `npm run fixtures`)');
   }

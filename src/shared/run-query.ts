@@ -1,6 +1,6 @@
 import { convertFoxPro, type ColumnKindResolver, type ConvertResult, type Diagnostic } from '../converter';
 import { convertTsql, type ReverseOptions, type ReverseResult } from '../converter/reverse';
-import type { DbApi, ExecuteResult } from './types';
+import type { DbBackend, ExecuteResult } from './types';
 
 /** A query tab: its server session and the cursors that session holds as #temp tables. */
 export interface QuerySession {
@@ -27,7 +27,7 @@ export interface QueryOutcome {
  * is updated only when the server accepted the batch, so it never names a cursor
  * that was not created.
  */
-export async function runFoxQuery(execute: DbApi['execute'], session: QuerySession, source: string, options: QueryOptions): Promise<QueryOutcome> {
+export async function runFoxQuery(execute: DbBackend['execute'], session: QuerySession, source: string, options: QueryOptions): Promise<QueryOutcome> {
   const conversion = convertFoxPro(source, {
     knownCursors: session.cursors,
     currentCursor: session.currentCursor,
@@ -72,7 +72,7 @@ export interface TsqlOutcome {
  * The #temp tables it creates join the session's cursors, so a later FoxPro query can read them.
  */
 export async function runTsqlQuery(
-  execute: DbApi['execute'],
+  execute: DbBackend['execute'],
   session: QuerySession,
   source: string,
   options: Pick<QueryOptions, 'maxRows' | 'onExecute'> & ReverseOptions,
@@ -112,7 +112,7 @@ export interface FoxProOutcome {
  * written, T-SQL is first turned into FoxPro. `execute` takes FoxPro source.
  */
 export async function runOnFoxPro(
-  execute: DbApi['execute'],
+  execute: DbBackend['execute'],
   session: QuerySession,
   source: string,
   language: 'foxpro' | 'tsql',

@@ -2,22 +2,24 @@ import './style.css';
 import { convertFoxPro, type Diagnostic } from '../../converter';
 import { convertTsql } from '../../converter/reverse';
 import { columnKindResolver, columnWidthResolver } from '../../shared/column-kind';
+import type { ColumnKindResolver } from '../../converter';
 import { commandForShortcut, shortcutOf, type AppCommand } from '../../shared/commands';
 import { runFoxQuery, runOnFoxPro, runTsqlQuery } from '../../shared/run-query';
-import type { ConnectionProfile, ExecuteResult, SchemaTable } from '../../shared/types';
+import type { ConnectionInfo, ConnectionProfile, ExecuteResult, SchemaTable } from '../../shared/types';
 import { updateActionLabel, type UpdateStatus } from '../../shared/update';
 import { createCompareEditor, createEditor, createModel, LANGUAGE_ID, monaco, qualifiedName, setSchema, TSQL_LANGUAGE_ID } from './editor';
-import { createExplorer, type ExplorerConnection } from './explorer';
+import type { Registration } from '../../shared/registry';
+import { connectionLabel, createExplorer, registrationLabel, type ExplorerConnection } from './explorer';
 import { renderGrid } from './grid';
 
 const MAX_ROWS = 5000;
 const PREVIEW_ROWS = 100;
-const PROFILE_STORAGE_KEY = 'fqs.profile';
+/** The app's own signal that a remembered SQL connection has no stored password. */
+const NEEDS_PASSWORD = 'NEEDS_PASSWORD';
 const MARKER_OWNER = 'foxpro';
 const MIN_EXPLORER_WIDTH = 160;
 const MIN_OUTPUT_HEIGHT = 80;
 const COMPARE_DELAY_MS = 250;
-const LOCAL_SERVER = 'FoxPro';
 
 /** The language a tab is written in; the other one is always derived from it. */
 type QueryLanguage = 'foxpro' | 'tsql';
@@ -35,6 +37,8 @@ interface Tab {
   /** File the tab was opened from or saved to. */
   filePath?: string;
   language: QueryLanguage;
+  /** The connection the tab runs on; unset until one is chosen. */
+  connectionId?: string;
   model: monaco.editor.ITextModel;
   cursors: string[];
   currentCursor?: string;
@@ -46,6 +50,12 @@ interface Tab {
   pane: PaneName;
   /** False until the tab has something to show below the editor; the pane stays closed meanwhile. */
   hasOutput: boolean;
+}
+
+/** An open connection with the objects loaded from it and the column lookups the converters need. */
+interface Connection extends ExplorerConnection {
+  resolveColumnKind: ColumnKindResolver;
+  resolveColumnWidth: ReturnType<typeof columnWidthResolver>;
 }
 
 const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -91,10 +101,18 @@ const compareEditor = createCompareEditor(el('compare-editor'));
 const tabs: Tab[] = [];
 let active: Tab;
 let tabCounter = 0;
-let connection: ExplorerConnection | undefined;
+const connections: Connection[] = [];
+/** Every remembered connection, open or not; the explorer shows them all. */
+let registrations: Registration[] = [];
+/** The connection new tabs are bound to. */
+let currentConnectionId: string | undefined;
 let running = false;
-let resolveColumnKind = columnKindResolver([]);
-let resolveColumnWidth = columnWidthResolver([]);
+const NO_CONNECTION: Pick<Connection, 'tables' | 'resolveColumnKind' | 'resolveColumnWidth'> = { tables: [], resolveColumnKind: columnKindResolver([]), resolveColumnWidth: columnWidthResolver([]) };
+
+const findConnection = (id: string | undefined) => connections.find((c) => c.id === id);
+/** The connection of a tab, if it is still open. */
+const connectionOf = (tab: Tab) => findConnection(tab.connectionId);
+const lookups = (tab: Tab) => connectionOf(tab) ?? NO_CONNECTION;
 
 const insertIntoEditor = (text: string) => {
   editor.trigger('explorer', 'type', { text });
@@ -103,19 +121,25 @@ const insertIntoEditor = (text: string) => {
 
 const explorer = createExplorer(el('explorer-tree'), {
   insertText: insertIntoEditor,
-  selectTop: (table) => {
-    newTab(`SELECT TOP ${PREVIEW_ROWS} * FROM ${qualifiedName(table)} ORDER BY 1`);
+  selectTop: (connectionId, table) => {
+    newTab(`SELECT TOP ${PREVIEW_ROWS} * FROM ${qualifiedName(table)} ORDER BY 1`, undefined, undefined, connectionId);
     void run();
   },
-  refresh: () => void refreshSchema(),
+  connect: (registrationId) => void connectSaved(registrationId),
+  remove: (registrationId) => void removeRegistration(registrationId),
+  select: selectConnection,
+  useForActiveTab: (connectionId) => bindTab(active, connectionId),
+  refresh: (connectionId) => void refreshSchema(connectionId),
+  disconnect: (connectionId) => void disconnect(connectionId),
 });
 
 // ---------- Status bar ----------
 
 function renderStatus(): void {
+  const connection = connectionOf(active);
   statusBar.classList.toggle('connected', connection !== undefined);
   statusState.textContent = connection ? 'Đã kết nối' : 'Chưa kết nối';
-  connectionStatus.textContent = !connection ? '' : connection.localPath ? `FoxPro: ${connection.localPath}` : `${connection.user} @ ${connection.server} / ${connection.database}`;
+  connectionStatus.textContent = !connection ? '' : connection.kind === 'foxpro' ? `FoxPro: ${connection.localPath}` : `${connection.user} @ ${connection.server} / ${connection.database}`;
   statusCursor.textContent = active.currentCursor ? `Cursor: ${active.currentCursor}` : '';
 
   const result = active.result;
@@ -132,6 +156,7 @@ function renderStatus(): void {
 
   runButton.disabled = !connection || running;
   disconnectButton.disabled = !connection;
+  disconnectButton.title = connection ? `Ngắt ${connectionLabel(connection)}` : 'Ngắt kết nối';
 }
 
 // ---------- Tabs ----------
@@ -171,19 +196,21 @@ function activate(tab: Tab): void {
   renderTabs();
   renderOutput();
   renderCompare();
-  explorer.setCursors(tab.cursors, tab.currentCursor);
+  setSchema(lookups(tab).tables);
+  explorer.setCursors(tab.connectionId, tab.cursors, tab.currentCursor);
 }
 
 const languageOfFile = (path: string): QueryLanguage => (path.toLowerCase().endsWith(LANGUAGES.tsql.extension) ? 'tsql' : 'foxpro');
 
 /** A new query starts in the language of the tab it was opened from. */
-function newTab(text = '', filePath?: string, language: QueryLanguage = filePath ? languageOfFile(filePath) : (active?.language ?? 'foxpro')): void {
+function newTab(text = '', filePath?: string, language: QueryLanguage = filePath ? languageOfFile(filePath) : (active?.language ?? 'foxpro'), connectionId = currentConnectionId): void {
   tabCounter++;
   const tab: Tab = {
     id: crypto.randomUUID(),
     title: filePath ? fileName(filePath) : `Truy vấn ${tabCounter}`,
     filePath,
     language,
+    connectionId,
     model: createModel(text, LANGUAGES[language].monacoId),
     cursors: [],
     messages: '',
@@ -200,7 +227,7 @@ function closeTab(tab: Tab): void {
   const index = tabs.indexOf(tab);
   tabs.splice(index, 1);
   tab.model.dispose();
-  void window.db.closeSession(tab.id);
+  if (tab.connectionId) void window.db.closeSession(tab.connectionId, tab.id);
   if (!tabs.length) newTab();
   else if (tab === active) activate(tabs[Math.min(index, tabs.length - 1)]);
   else renderTabs();
@@ -289,18 +316,23 @@ function setMarkers(tab: Tab, errors: Diagnostic[], warnings: Diagnostic[]): voi
 
 const formatDiagnostics = (label: string, list: Diagnostic[]) => list.map((d) => `${label} dòng ${d.line}: ${d.message}`);
 
-/** IPC errors arrive wrapped by Electron; rethrow them with the server's own message. */
-async function executeOnServer(sessionId: string, sql: string, maxRows: number): Promise<ExecuteResult> {
-  try {
-    return await window.db.execute(sessionId, sql, maxRows);
-  } catch (e) {
-    throw new Error(ipcErrorMessage(e));
-  }
-}
+/** Runs on one connection; IPC errors arrive wrapped by Electron and are rethrown with the server's own message. */
+const executeOn =
+  (connectionId: string) =>
+  async (sessionId: string, sql: string, maxRows: number): Promise<ExecuteResult> => {
+    try {
+      return await window.db.execute(connectionId, sessionId, sql, maxRows);
+    } catch (e) {
+      throw new Error(ipcErrorMessage(e));
+    }
+  };
 
 async function run(): Promise<void> {
-  if (!connection || running) return;
   const tab = active;
+  const connection = connectionOf(tab);
+  if (!connection || running) return;
+  const { resolveColumnKind, resolveColumnWidth } = connection;
+  const executeOnServer = executeOn(connection.id);
   const selection = editor.getSelection();
   const useSelection = selection !== null && !selection.isEmpty();
   const source = useSelection ? tab.model.getValueInRange(selection) : tab.model.getValue();
@@ -317,7 +349,7 @@ async function run(): Promise<void> {
   let warnings: Diagnostic[];
   const lines: string[] = [];
   try {
-    if (connection.localPath) {
+    if (connection.kind === 'foxpro') {
       // On a FoxPro database FoxPro is the engine: T-SQL has to translate before it can run.
       const outcome = await runOnFoxPro(executeOnServer, tab, source, tab.language, { maxRows: MAX_ROWS, resolveColumnKind, resolveColumnWidth, onExecute });
       result = outcome.result;
@@ -356,7 +388,7 @@ async function run(): Promise<void> {
   } else {
     lines.push(...result.messages);
     if (result.error) {
-      lines.push(`Lỗi từ ${connection?.localPath ? 'FoxPro' : 'máy chủ'}: ${result.error}`);
+      lines.push(`Lỗi từ ${connection.kind === 'foxpro' ? 'FoxPro' : 'máy chủ'}: ${result.error}`);
       if (result.sessionReset) lines.push('Phiên làm việc đã được mở lại sau lỗi, các cursor trước đó không còn.');
     } else {
       result.resultSets.forEach((set, i) => lines.push(`Bảng ${i + 1}: ${set.rows.length} dòng`));
@@ -371,7 +403,7 @@ async function run(): Promise<void> {
   if (tab === active) {
     renderOutput();
     renderCompare();
-    explorer.setCursors(tab.cursors, tab.currentCursor);
+    explorer.setCursors(tab.connectionId, tab.cursors, tab.currentCursor);
   }
 }
 
@@ -385,6 +417,7 @@ interface Translation {
 
 /** The tab's source in the other language, without running anything. */
 function translate(tab: Tab, source: string): Translation {
+  const { resolveColumnKind, resolveColumnWidth } = lookups(tab);
   if (tab.language === 'foxpro') {
     const { sql, errors, warnings } = convertFoxPro(source, { knownCursors: tab.cursors, currentCursor: tab.currentCursor, resolveColumnKind });
     return { text: sql, errors, warnings };
@@ -452,58 +485,89 @@ function switchLanguage(): void {
 
 // ---------- Connection ----------
 
-function loadSavedProfile(): Partial<ConnectionProfile> {
-  try {
-    return JSON.parse(localStorage.getItem(PROFILE_STORAGE_KEY) ?? '{}');
-  } catch {
-    return {};
-  }
-}
-
-function saveProfile(profile: ConnectionProfile): void {
-  // The password is never persisted.
-  const { password: _password, ...rest } = profile;
-  try {
-    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(rest));
-  } catch {
-    // Storage is a convenience only.
-  }
-}
-
 function field(name: string): HTMLInputElement {
   return connectForm.elements.namedItem(name) as HTMLInputElement;
 }
 
-function openConnectDialog(): void {
-  const saved = loadSavedProfile();
-  field('server').value = saved.server ?? '';
-  field('port').value = saved.port ? String(saved.port) : '';
-  field('database').value = saved.database ?? '';
-  field('user').value = saved.user ?? '';
+const savedSelect = el<HTMLSelectElement>('saved-connections');
+const sqlRegistrations = () => registrations.filter((r): r is Registration & { kind: 'sql' } => r.kind === 'sql');
+
+/** Fills the form from a remembered connection; a stored password need not be typed again. */
+function fillConnectForm(saved: (Registration & { kind: 'sql' }) | undefined): void {
+  const profile = saved?.profile;
+  field('server').value = profile?.server ?? '';
+  field('port').value = profile?.port ? String(profile.port) : '';
+  field('database').value = profile?.database ?? '';
+  field('user').value = profile?.user ?? '';
   field('password').value = '';
-  field('encrypt').checked = saved.encrypt ?? true;
-  field('trust').checked = saved.trustServerCertificate ?? false;
+  field('password').placeholder = saved?.hasPassword ? '(đã lưu, để trống để dùng lại)' : '';
+  field('password').required = !saved?.hasPassword;
+  field('encrypt').checked = profile?.encrypt ?? true;
+  field('trust').checked = profile?.trustServerCertificate ?? false;
+  field('remember').checked = saved?.hasPassword ?? false;
+}
+
+function openConnectDialog(registrationId?: string): void {
+  const saved = sqlRegistrations();
+  savedSelect.replaceChildren(
+    new Option('(mới)', ''),
+    ...saved.map((r) => new Option(`${registrationLabel(r)} / ${r.profile.database}`, r.id)),
+  );
+  const chosen = saved.find((r) => r.id === registrationId) ?? saved[saved.length - 1];
+  savedSelect.value = chosen?.id ?? '';
+  fillConnectForm(chosen);
   connectError.hidden = true;
   connectDialog.showModal();
 }
 
-/** A new or dropped connection closes every server session, so no cursor survives it. */
-function forgetCursors(): void {
-  for (const tab of tabs) {
-    tab.cursors = [];
-    tab.currentCursor = undefined;
-  }
+async function loadRegistrations(): Promise<void> {
+  registrations = await window.registry.list();
+  renderExplorer();
 }
 
-function applySchema(next: ExplorerConnection | undefined, tables: SchemaTable[]): void {
-  connection = next;
-  setSchema(tables);
-  resolveColumnKind = columnKindResolver(tables);
-  resolveColumnWidth = columnWidthResolver(tables);
-  renderCompare();
-  explorer.setConnection(next, tables);
-  explorer.setCursors(active.cursors, active.currentCursor);
+/** Makes the connection the one new tabs use; the first connection also takes the tabs opened before it. */
+function selectConnection(connectionId: string): void {
+  currentConnectionId = connectionId;
+  for (const tab of tabs) {
+    if (!tab.connectionId) tab.connectionId = connectionId;
+  }
+  renderExplorer();
   renderStatus();
+}
+
+/** Moves a tab onto another connection; its cursors stay behind with the old session. */
+function bindTab(tab: Tab, connectionId: string): void {
+  if (tab.connectionId === connectionId) return;
+  if (tab.connectionId) void window.db.closeSession(tab.connectionId, tab.id);
+  tab.connectionId = connectionId;
+  tab.cursors = [];
+  tab.currentCursor = undefined;
+  currentConnectionId = connectionId;
+  if (tab === active) activate(tab);
+  renderExplorer();
+}
+
+function renderExplorer(): void {
+  explorer.setEntries(
+    registrations.map((registration) => ({ registration, connection: findConnection(registration.id) })),
+    currentConnectionId,
+  );
+  explorer.setCursors(active.connectionId, active.cursors, active.currentCursor);
+}
+
+function withSchema(info: ConnectionInfo, tables: SchemaTable[]): Connection {
+  return { ...info, tables, resolveColumnKind: columnKindResolver(tables), resolveColumnWidth: columnWidthResolver(tables) };
+}
+
+/** Adds (or replaces) a connection with its objects and makes it current. */
+function addConnection(info: ConnectionInfo, tables: SchemaTable[]): void {
+  const index = connections.findIndex((c) => c.id === info.id);
+  const connection = withSchema(info, tables);
+  if (index < 0) connections.push(connection);
+  else connections[index] = connection;
+  selectConnection(info.id);
+  setSchema(lookups(active).tables);
+  renderCompare();
 }
 
 async function submitConnection(event: SubmitEvent): Promise<void> {
@@ -517,14 +581,15 @@ async function submitConnection(event: SubmitEvent): Promise<void> {
     encrypt: field('encrypt').checked,
     trustServerCertificate: field('trust').checked,
   };
+  const saved = sqlRegistrations().find((r) => r.id === savedSelect.value);
   connectSubmit.disabled = true;
   connectError.hidden = true;
   try {
-    await window.db.connect(profile);
-    const tables = await window.db.loadSchema();
-    saveProfile(profile);
-    forgetCursors();
-    applySchema({ server: profile.server, user: profile.user, database: profile.database }, tables);
+    // An empty password means "the one stored with the remembered connection".
+    const info = !profile.password && saved?.hasPassword ? await window.db.connectSaved(saved.id) : await window.db.connect(profile, field('remember').checked);
+    const tables = await window.db.loadSchema(info.id);
+    await loadRegistrations();
+    addConnection(info, tables);
     connectDialog.close();
     editor.focus();
   } catch (e) {
@@ -535,49 +600,95 @@ async function submitConnection(event: SubmitEvent): Promise<void> {
   }
 }
 
-/** Opens a folder of .dbf files in the app's own engine; from then on it is the connection. */
-async function openLocal(): Promise<void> {
+function report(tab: Tab, message: string): void {
+  tab.messages = message;
+  tab.pane = 'messages';
+  tab.hasOutput = true;
+  if (tab === active) renderOutput();
+}
+
+/** Opens a FoxPro database file as a connection of its own, run by FoxPro itself. */
+async function openFoxPro(): Promise<void> {
   if (running) return;
   const tab = active;
-  const report = (message: string) => {
-    tab.messages = message;
-    tab.pane = 'messages';
-    tab.hasOutput = true;
-    if (tab === active) renderOutput();
-  };
   running = true;
   renderStatus();
   try {
-    const opened = await window.localDb.open();
-    if (!opened) return;
-    const tables = await window.db.loadSchema();
-    forgetCursors();
-    applySchema({ server: LOCAL_SERVER, user: '', database: opened.name, localPath: opened.path }, tables);
-    report(`Đã mở ${opened.path}: ${tables.length} bảng. Truy vấn chạy bằng chính FoxPro; T-SQL được chuyển sang FoxPro trước khi chạy.`);
+    const info = await window.db.openFoxPro();
+    if (!info) return;
+    const tables = await window.db.loadSchema(info.id);
+    await loadRegistrations();
+    addConnection(info, tables);
+    report(tab, `Đã mở ${info.localPath}: ${tables.length} bảng. Truy vấn chạy bằng chính FoxPro; T-SQL được chuyển sang FoxPro trước khi chạy.`);
   } catch (e) {
-    report(`Không mở được CSDL FoxPro: ${ipcErrorMessage(e)}`);
+    report(tab, `Không mở được CSDL FoxPro: ${ipcErrorMessage(e)}`);
   } finally {
     running = false;
     renderStatus();
   }
 }
 
-async function disconnect(): Promise<void> {
-  if (!connection) return;
-  await window.db.disconnect();
-  forgetCursors();
-  applySchema(undefined, []);
+/** Reopens a remembered connection; a SQL one without a stored password asks for it. */
+async function connectSaved(registrationId: string): Promise<void> {
+  if (running) return;
+  const tab = active;
+  running = true;
+  renderStatus();
+  try {
+    const info = await window.db.connectSaved(registrationId);
+    const tables = await window.db.loadSchema(info.id);
+    await loadRegistrations();
+    addConnection(info, tables);
+  } catch (e) {
+    const message = ipcErrorMessage(e);
+    if (message.includes(NEEDS_PASSWORD)) openConnectDialog(registrationId);
+    else report(tab, `Không kết nối được: ${message}`);
+  } finally {
+    running = false;
+    renderStatus();
+  }
 }
 
-async function refreshSchema(): Promise<void> {
+async function removeRegistration(registrationId: string): Promise<void> {
+  await disconnect(registrationId);
+  await window.registry.remove(registrationId);
+  await loadRegistrations();
+}
+
+async function chooseVfpPath(): Promise<void> {
+  const chosen = await window.app.chooseVfpPath();
+  if (chosen) report(active, `Visual FoxPro 9: ${chosen}`);
+}
+
+/** Closes a connection; tabs that ran on it keep their text and wait for another one. */
+async function disconnect(connectionId: string | undefined = active.connectionId): Promise<void> {
+  const index = connections.findIndex((c) => c.id === connectionId);
+  if (index < 0) return;
+  connections.splice(index, 1);
+  await window.db.disconnect(connectionId!).catch(() => undefined);
+  for (const tab of tabs) {
+    if (tab.connectionId !== connectionId) continue;
+    tab.connectionId = undefined;
+    tab.cursors = [];
+    tab.currentCursor = undefined;
+  }
+  if (currentConnectionId === connectionId) currentConnectionId = connections[connections.length - 1]?.id;
+  renderExplorer();
+  setSchema(lookups(active).tables);
+  renderCompare();
+  renderStatus();
+}
+
+async function refreshSchema(connectionId: string | undefined = active.connectionId): Promise<void> {
+  const connection = findConnection(connectionId);
   if (!connection) return;
   try {
-    applySchema(connection, await window.db.loadSchema());
+    const tables = await window.db.loadSchema(connection.id);
+    Object.assign(connection, withSchema(connection, tables));
+    renderExplorer();
+    setSchema(lookups(active).tables);
   } catch (e) {
-    active.messages = `Không nạp lại được danh sách đối tượng: ${ipcErrorMessage(e)}`;
-    active.pane = 'messages';
-    active.hasOutput = true;
-    renderOutput();
+    report(active, `Không nạp lại được danh sách đối tượng: ${ipcErrorMessage(e)}`);
   }
 }
 
@@ -631,10 +742,11 @@ const HANDLERS: Record<AppCommand, () => void> = {
   'file.save': () => void saveFile(false),
   'file.saveAs': () => void saveFile(true),
   'file.closeTab': () => closeTab(active),
-  'connection.connect': openConnectDialog,
+  'connection.connect': () => openConnectDialog(),
   'connection.disconnect': () => void disconnect(),
   'connection.refresh': () => void refreshSchema(),
-  'local.open': () => void openLocal(),
+  'local.vfpPath': () => void chooseVfpPath(),
+  'local.open': () => void openFoxPro(),
   'query.run': () => void run(),
   'query.switchLanguage': switchLanguage,
   'view.compare': toggleCompare,
@@ -709,4 +821,6 @@ versionButton.addEventListener('click', () => void window.updates.check());
 window.updates.onStatus(renderUpdate);
 void window.updates.getStatus().then(renderUpdate);
 
+savedSelect.addEventListener('change', () => fillConnectForm(sqlRegistrations().find((r) => r.id === savedSelect.value)));
 newTab();
+void loadRegistrations();

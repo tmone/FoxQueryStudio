@@ -197,6 +197,30 @@ button.version.failed {
   background: #6b7a8f;
 }
 
+.tree .server + .server {
+  margin-top: 6px;
+}
+
+/* A remembered connection that is not open. */
+.tree .server.offline > summary {
+  color: var(--muted);
+  font-weight: 400;
+  list-style: none;
+}
+
+.tree .server.offline > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* The connection new queries run on. */
+.tree .server.current > summary {
+  color: var(--accent);
+}
+
+.tree .server.current > summary::before {
+  background: var(--accent);
+}
+
 .tree .database > summary::before {
   background: #c8891e;
   border-radius: 50%;

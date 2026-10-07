@@ -1,10 +1,10 @@
 import type sqlTypes from 'mssql';
 import sqlv8 from 'mssql/msnodesqlv8';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createDatabase } from '../src/main/db';
+import { createDatabase, type SqlDatabase } from '../src/main/db';
 import { columnKindResolver } from '../src/shared/column-kind';
 import { runFoxQuery, type QuerySession } from '../src/shared/run-query';
-import type { CellValue, ConnectionProfile, DbApi, SchemaTable } from '../src/shared/types';
+import type { CellValue, ConnectionProfile, DbBackend, SchemaTable } from '../src/shared/types';
 import { isLocalDbAvailable, runBatches } from '../tools/sqlrun';
 import { requireOk } from './support/harness';
 
@@ -74,7 +74,7 @@ const byMa = (a: Employee, b: Employee) => (a.ma < b.ma ? -1 : 1);
 const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
 
 describe.skipIf(!isLocalDbAvailable())('application database service and query flow', () => {
-  let db: DbApi;
+  let db: SqlDatabase;
   let schema: SchemaTable[];
   let resolveColumnKind: ReturnType<typeof columnKindResolver>;
 
@@ -283,7 +283,7 @@ describe.skipIf(!isLocalDbAvailable())('application database service and query f
 
     it('sends nothing to the server when the source does not convert', async () => {
       const calls: string[] = [];
-      const spy: DbApi['execute'] = (id, sql, max) => (calls.push(sql), db.execute(id, sql, max));
+      const spy: DbBackend['execute'] = (id, sql, max) => (calls.push(sql), db.execute(id, sql, max));
       const outcome = await runFoxQuery(spy, newSession('vn-invalid'), 'SELECT 1 AS a\nREPLACE LuongCoBan WITH 0', { maxRows: MAX_ROWS });
       expect(outcome.conversion.errors).toEqual([{ line: 2, message: 'Lệnh REPLACE chưa được hỗ trợ (chỉ SELECT và BROWSE).' }]);
       expect(outcome.result).toBeUndefined();

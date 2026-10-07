@@ -81,7 +81,8 @@ function registerLanguage(): void {
     },
   });
 
-  monaco.languages.registerCompletionItemProvider(LANGUAGE_ID, {
+  // Tables and columns are offered in both languages; the T-SQL side is Monaco's own SQL language.
+  monaco.languages.registerCompletionItemProvider([LANGUAGE_ID, TSQL_LANGUAGE_ID], {
     triggerCharacters: ['.'],
     provideCompletionItems(model, position) {
       const word = model.getWordUntilPosition(position);

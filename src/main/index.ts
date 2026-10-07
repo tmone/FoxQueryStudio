@@ -1,18 +1,19 @@
 import { app, BrowserWindow, ipcMain, nativeTheme, shell } from 'electron';
 import { join } from 'node:path';
-import type { ConnectionProfile, DbApi } from '../shared/types';
 import sql from 'mssql';
+import { createConnections } from './connections';
 import { createDatabase, tediousConfig } from './db';
-import { setupLocalDatabase } from './local-db';
-import { createFoxEngine, findVfp } from './fox-engine';
+import { createFoxEngine } from './fox-engine';
+import { locateVfp, setupConnectionIpc } from './local-db';
 import { setupMenu } from './menu';
 import { setupUpdater } from './updater';
 
-const server = createDatabase(sql, tediousConfig);
-/** FoxPro itself, for a database opened from disk; a copy shipped with the app is looked for first. */
-const foxEngine = createFoxEngine(() => findVfp([join(process.resourcesPath, 'vfp', 'vfp9.exe')]));
-/** Where queries go: the SQL Server connection, or FoxPro while a FoxPro database is open. */
-let db: DbApi = server;
+/** A copy of FoxPro shipped inside the program is looked for before an installed one. */
+const SHIPPED_VFP = [join(process.resourcesPath, 'vfp', 'vfp9.exe')];
+const connections = createConnections(
+  () => createDatabase(sql, tediousConfig),
+  () => createFoxEngine(() => locateVfp(SHIPPED_VFP)),
+);
 let mainWindow: BrowserWindow | undefined;
 
 // The app looks like SSMS, which is light whatever the Windows theme.
@@ -54,28 +55,26 @@ function createWindow(): void {
 }
 
 function registerIpc(): void {
-  ipcMain.handle('db:connect', async (_e, profile: ConnectionProfile) => {
-    await foxEngine.disconnect();
-    db = server;
-    await server.connect(profile);
-  });
-  ipcMain.handle('db:disconnect', () => db.disconnect());
-  ipcMain.handle('db:schema', () => db.loadSchema());
-  ipcMain.handle('db:execute', (_e, sessionId: string, sql: string, maxRows: number) => db.execute(sessionId, sql, maxRows));
-  ipcMain.handle('db:closeSession', (_e, sessionId: string) => db.closeSession(sessionId));
+  ipcMain.handle('db:disconnect', (_e, id: string) => connections.disconnect(id));
+  ipcMain.handle('db:schema', (_e, id: string) => connections.loadSchema(id));
+  ipcMain.handle('db:execute', (_e, id: string, sessionId: string, sql: string, maxRows: number) => connections.execute(id, sessionId, sql, maxRows));
+  ipcMain.handle('db:closeSession', (_e, id: string, sessionId: string) => connections.closeSession(id, sessionId));
 }
+
+// Tests point the app at a folder of their own, so remembered connections do not leak between runs.
+if (process.env.FQS_USER_DATA) app.setPath('userData', process.env.FQS_USER_DATA);
+
+// Tests point the app at a folder of their own, so remembered connections do not leak between runs.
+if (process.env.FQS_USER_DATA) app.setPath('userData', process.env.FQS_USER_DATA);
 
 void app.whenReady().then(() => {
   registerIpc();
   setupMenu(() => mainWindow);
-  setupLocalDatabase(() => mainWindow, foxEngine, async () => {
-    await server.disconnect();
-    db = foxEngine;
-  });
+  setupConnectionIpc(() => mainWindow, connections, SHIPPED_VFP);
   setupUpdater(() => mainWindow);
   createWindow();
 });
 
 app.on('window-all-closed', () => {
-  void Promise.allSettled([server.disconnect(), foxEngine.disconnect()]).finally(() => app.quit());
+  void connections.disconnectAll().finally(() => app.quit());
 });

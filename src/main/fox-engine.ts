@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, wr
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { readOnlyViolation, RESULT_CURSOR, toRunnable } from '../shared/fox-statements';
-import type { CellValue, DbApi, ExecuteResult, ResultSet, SchemaTable } from '../shared/types';
+import type { CellValue, DbBackend, ExecuteResult, ResultSet, SchemaTable } from '../shared/types';
 
 /**
  * Runs queries on a FoxPro database with FoxPro itself: a windowless Visual FoxPro process
@@ -126,19 +126,22 @@ PROCEDURE fqs_run(tcStatement, tlDump)
 ENDPROC
 
 PROCEDURE fqs_schema
-  LOCAL lnTables, lnI, lnJ, lnFields, lcName
+  LOCAL lnTables, lnFiles, lnI, lnJ, lnFields, lcName
   LOCAL ARRAY laTables[1], laFiles[1], laFields[1]
+  lnTables = 0
   IF !EMPTY(gcDatabase)
     lnTables = ADBOBJECTS(laTables, "TABLE")
-  ELSE
-    lnTables = ADIR(laFiles, "*.dbf")
-    IF lnTables > 0
-      DIMENSION laTables[lnTables]
-      FOR lnI = 1 TO lnTables
-        laTables[lnI] = JUSTSTEM(laFiles[lnI, 1])
-      ENDFOR
-    ENDIF
   ENDIF
+  * Free tables in the folder are listed too; a container's tables are already in the list.
+  lnFiles = ADIR(laFiles, "*.dbf")
+  FOR lnI = 1 TO lnFiles
+    lcName = JUSTSTEM(laFiles[lnI, 1])
+    IF lnTables = 0 OR ASCAN(laTables, lcName, 1, lnTables, 1, 1 + 2 + 4) = 0
+      lnTables = lnTables + 1
+      DIMENSION laTables[lnTables]
+      laTables[lnTables] = lcName
+    ENDIF
+  ENDFOR
   FOR lnI = 1 TO lnTables
     lcName = laTables[lnI]
     USE (lcName) AGAIN SHARED NOUPDATE ALIAS fqs_s IN 0
@@ -273,7 +276,7 @@ export function findVfp(extra: string[] = []): string | undefined {
   return [process.env.FQS_VFP_EXE, ...extra, ...STANDARD_LOCATIONS].find((path) => path && existsSync(path));
 }
 
-export interface FoxEngine extends DbApi {
+export interface FoxEngine extends DbBackend {
   /** Opens a database container (.dbc), or the folder of a free table (.dbf), for querying. */
   openDatabase(path: string): Promise<void>;
   /** Folder or container currently open. */
@@ -346,10 +349,6 @@ export function createFoxEngine(locateVfp: () => string | undefined = findVfp): 
   return {
     get path() {
       return openedPath;
-    },
-
-    async connect() {
-      throw new Error('Engine FoxPro chỉ mở tệp CSDL FoxPro.');
     },
 
     async openDatabase(path) {

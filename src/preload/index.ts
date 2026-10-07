@@ -1,19 +1,22 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { AppApi, AppCommand } from '../shared/commands';
-import type { LocalDbApi } from '../shared/local-db';
+import type { RegistryApi } from '../shared/registry';
 import type { DbApi } from '../shared/types';
 import type { UpdateApi, UpdateStatus } from '../shared/update';
 
 const api: DbApi = {
-  connect: (profile) => ipcRenderer.invoke('db:connect', profile),
-  disconnect: () => ipcRenderer.invoke('db:disconnect'),
-  loadSchema: () => ipcRenderer.invoke('db:schema'),
-  execute: (sessionId, sql, maxRows) => ipcRenderer.invoke('db:execute', sessionId, sql, maxRows),
-  closeSession: (sessionId) => ipcRenderer.invoke('db:closeSession', sessionId),
+  connect: (profile, rememberPassword) => ipcRenderer.invoke('db:connect', profile, rememberPassword),
+  connectSaved: (id, password) => ipcRenderer.invoke('db:connectSaved', id, password),
+  openFoxPro: () => ipcRenderer.invoke('local:open'),
+  disconnect: (id) => ipcRenderer.invoke('db:disconnect', id),
+  loadSchema: (id) => ipcRenderer.invoke('db:schema', id),
+  execute: (id, sessionId, sql, maxRows) => ipcRenderer.invoke('db:execute', id, sessionId, sql, maxRows),
+  closeSession: (id, sessionId) => ipcRenderer.invoke('db:closeSession', id, sessionId),
 };
 
-const localDb: LocalDbApi = {
-  open: () => ipcRenderer.invoke('local:open'),
+const registry: RegistryApi = {
+  list: () => ipcRenderer.invoke('registry:list'),
+  remove: (id) => ipcRenderer.invoke('registry:remove', id),
 };
 
 const updates: UpdateApi = {
@@ -37,9 +40,11 @@ const appApi: AppApi & { about(): Promise<void> } = {
   openFile: () => ipcRenderer.invoke('file:open'),
   saveFile: (path, content, suggestedName) => ipcRenderer.invoke('file:save', path, content, suggestedName),
   about: () => ipcRenderer.invoke('app:about'),
+  getVfpPath: () => ipcRenderer.invoke('vfp:getPath'),
+  chooseVfpPath: () => ipcRenderer.invoke('vfp:choose'),
 };
 
 contextBridge.exposeInMainWorld('db', api);
-contextBridge.exposeInMainWorld('localDb', localDb);
 contextBridge.exposeInMainWorld('app', appApi);
+contextBridge.exposeInMainWorld('registry', registry);
 contextBridge.exposeInMainWorld('updates', updates);

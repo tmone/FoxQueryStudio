@@ -43,9 +43,36 @@ export interface ExecuteResult {
   elapsedMs: number;
 }
 
-/** API exposed to the renderer through the preload bridge. */
+/** An open connection: a SQL Server database, or a FoxPro database on disk run by FoxPro itself. */
+export interface ConnectionInfo {
+  id: string;
+  kind: 'sql' | 'foxpro';
+  server: string;
+  user: string;
+  database: string;
+  /** The .dbc or folder of a FoxPro database. */
+  localPath?: string;
+}
+
+/** API exposed to the renderer through the preload bridge. Several connections can be open at once. */
 export interface DbApi {
-  connect(profile: ConnectionProfile): Promise<void>;
+  /** Connects and remembers the connection; the password is stored encrypted only when asked. */
+  connect(profile: ConnectionProfile, rememberPassword: boolean): Promise<ConnectionInfo>;
+  /**
+   * Reopens a remembered connection. A SQL registration without a stored password needs one
+   * passed in; otherwise the call fails with NEEDS_PASSWORD.
+   */
+  connectSaved(registrationId: string, password?: string): Promise<ConnectionInfo>;
+  /** Asks for a .dbc or .dbf file and opens that database in FoxPro; undefined when the dialog is cancelled. */
+  openFoxPro(): Promise<ConnectionInfo | undefined>;
+  disconnect(connectionId: string): Promise<void>;
+  loadSchema(connectionId: string): Promise<SchemaTable[]>;
+  execute(connectionId: string, sessionId: string, sql: string, maxRows: number): Promise<ExecuteResult>;
+  closeSession(connectionId: string, sessionId: string): Promise<void>;
+}
+
+/** One connection's worth of the database service: what createDatabase and createFoxEngine implement. */
+export interface DbBackend {
   disconnect(): Promise<void>;
   loadSchema(): Promise<SchemaTable[]>;
   execute(sessionId: string, sql: string, maxRows: number): Promise<ExecuteResult>;

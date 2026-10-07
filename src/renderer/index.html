@@ -86,6 +86,7 @@
     <dialog id="connect-dialog">
       <form id="connect-form" method="dialog">
         <h2>Kết nối SQL Server</h2>
+        <label>Kết nối đã lưu <select name="saved" id="saved-connections"><option value="">(mới)</option></select></label>
         <label>Máy chủ <input name="server" required placeholder="host hoặc host\instance" /></label>
         <label>Cổng <input name="port" type="number" min="1" max="65535" placeholder="1433" /></label>
         <label>Cơ sở dữ liệu <input name="database" required /></label>
@@ -93,6 +94,7 @@
         <label>Mật khẩu <input name="password" type="password" required autocomplete="current-password" /></label>
         <label class="check"><input name="encrypt" type="checkbox" checked /> Mã hóa kết nối</label>
         <label class="check"><input name="trust" type="checkbox" /> Tin chứng chỉ máy chủ (nội bộ)</label>
+        <label class="check"><input name="remember" type="checkbox" /> Lưu mật khẩu (mã hóa theo tài khoản Windows này)</label>
         <p id="connect-error" class="error" role="alert" hidden></p>
         <div class="actions">
           <button type="button" id="connect-cancel">Hủy</button>

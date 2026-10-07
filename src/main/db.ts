@@ -1,5 +1,5 @@
 import type sqlTypes from 'mssql';
-import type { CellValue, ConnectionProfile, DbApi, ExecuteResult, ResultSet, SchemaTable } from '../shared/types';
+import type { CellValue, ConnectionProfile, DbBackend, ExecuteResult, ResultSet, SchemaTable } from '../shared/types';
 
 /** The parts of the `mssql` package used here; `mssql/msnodesqlv8` offers the same ones. */
 export type SqlDriver = Pick<typeof sqlTypes, 'ConnectionPool'>;
@@ -77,7 +77,12 @@ function toCell(value: unknown): CellValue {
  * Creates the database service. The driver and its connection settings are passed in
  * so tests can run the same code against LocalDB, which the default driver cannot reach.
  */
-export function createDatabase(driver: SqlDriver, buildConfig: (profile: ConnectionProfile) => sqlTypes.config): DbApi {
+export interface SqlDatabase extends DbBackend {
+  /** Checks the profile by opening a connection; the connection itself is kept per session. */
+  connect(profile: ConnectionProfile): Promise<void>;
+}
+
+export function createDatabase(driver: SqlDriver, buildConfig: (profile: ConnectionProfile) => sqlTypes.config): SqlDatabase {
   let profile: ConnectionProfile | undefined;
   /** One single-connection pool per query tab, so #temp cursors survive between runs. */
   const sessions = new Map<string, Pool>();
