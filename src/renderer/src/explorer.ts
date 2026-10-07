@@ -31,7 +31,30 @@ export interface ExplorerActions {
 
 interface MenuAction {
   label: string;
+  icon: MenuIcon;
   run(): void;
+}
+
+type MenuIcon = 'connect' | 'disconnect' | 'remove' | 'refresh' | 'useForTab' | 'preview' | 'insertName' | 'insertColumns';
+
+/** Small line icons for the context menu, 16×16, drawn with the text colour. */
+const MENU_ICONS: Record<MenuIcon, string> = {
+  connect: '<path d="M2.5 8h7M7 5l3 3-3 3"/><path d="M11 3.5h2.5v9H11"/>',
+  disconnect: '<path d="M5 3.5H2.5v9H5"/><path d="M13.5 8h-7M9.5 5l-3 3 3 3"/>',
+  remove: '<path d="M3 4.5h10M6.5 4.5v-2h3v2M4.5 4.5l.7 9h5.6l.7-9"/>',
+  refresh: '<path d="M13 8a5 5 0 1 1-1.5-3.5"/><path d="M13 2.5v3h-3"/>',
+  useForTab: '<path d="M2.5 3.5h11v9h-11z"/><path d="M2.5 6.5h11M5.5 3.5v3"/><path d="M6 10h4"/>',
+  preview: '<path d="M2.5 3.5h11v9h-11z"/><path d="M2.5 6.5h11M6 6.5v6M10 6.5v6"/>',
+  insertName: '<path d="M3 12.5h10"/><path d="M4.5 10l3.5-7 3.5 7M5.7 7.5h4.6"/>',
+  insertColumns: '<path d="M3 2.5h3v11H3zM6.5 2.5h3v11h-3zM10 2.5h3v11h-3z"/>',
+};
+
+function menuIcon(name: MenuIcon): SVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.innerHTML = MENU_ICONS[name];
+  return svg;
 }
 
 type NodeKind = 'server' | 'database' | 'group' | 'table' | 'view' | 'folder' | 'cursors';
@@ -100,7 +123,7 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
       const button = document.createElement('button');
       button.type = 'button';
       button.setAttribute('role', 'menuitem');
-      button.textContent = item.label;
+      button.append(menuIcon(item.icon), item.label);
       button.addEventListener('click', item.run);
       menu.append(button);
     }
@@ -117,9 +140,9 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
     summary.addEventListener('dblclick', () => actions.insertText(qualifiedName(table)));
     summary.addEventListener('contextmenu', (event) =>
       showContextMenu(event, [
-        { label: 'Xem 100 dòng đầu', run: () => actions.selectTop(connectionId, table) },
-        { label: 'Chèn tên vào truy vấn', run: () => actions.insertText(qualifiedName(table)) },
-        { label: 'Chèn danh sách cột', run: () => actions.insertText(table.columns.map((c) => c.name).join(', ')) },
+        { label: 'Xem 100 dòng đầu', icon: 'preview', run: () => actions.selectTop(connectionId, table) },
+        { label: 'Chèn tên vào truy vấn', icon: 'insertName', run: () => actions.insertText(qualifiedName(table)) },
+        { label: 'Chèn danh sách cột', icon: 'insertColumns', run: () => actions.insertText(table.columns.map((c) => c.name).join(', ')) },
       ]),
     );
     // Columns are built on first expand to keep large schemas light.
@@ -165,10 +188,10 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
     server.summary.addEventListener('click', () => actions.select(connection.id));
     server.summary.addEventListener('contextmenu', (event) =>
       showContextMenu(event, [
-        { label: 'Dùng cho tab đang mở', run: () => actions.useForActiveTab(connection.id) },
-        { label: 'Làm mới', run: () => actions.refresh(connection.id) },
-        { label: 'Ngắt kết nối', run: () => actions.disconnect(connection.id) },
-        { label: 'Xóa khỏi danh sách', run: () => actions.remove(connection.id) },
+        { label: 'Dùng cho tab đang mở', icon: 'useForTab', run: () => actions.useForActiveTab(connection.id) },
+        { label: 'Làm mới', icon: 'refresh', run: () => actions.refresh(connection.id) },
+        { label: 'Ngắt kết nối', icon: 'disconnect', run: () => actions.disconnect(connection.id) },
+        { label: 'Xóa khỏi danh sách', icon: 'remove', run: () => actions.remove(connection.id) },
       ]),
     );
     const database = node('database', connection.database, true);
@@ -194,8 +217,8 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
     summary.addEventListener('dblclick', () => actions.connect(registration.id));
     summary.addEventListener('contextmenu', (event) =>
       showContextMenu(event, [
-        { label: 'Kết nối', run: () => actions.connect(registration.id) },
-        { label: 'Xóa khỏi danh sách', run: () => actions.remove(registration.id) },
+        { label: 'Kết nối', icon: 'connect', run: () => actions.connect(registration.id) },
+        { label: 'Xóa khỏi danh sách', icon: 'remove', run: () => actions.remove(registration.id) },
       ]),
     );
     return details;

@@ -23,7 +23,6 @@
       <span class="divider"></span>
       <button id="btn-toggle-compare" type="button" class="tool" data-command="view.compare" title="So sánh FOX-SQL và T-SQL (Ctrl+Shift+D)" aria-label="So sánh FOX-SQL và T-SQL" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 2.5h5.5v11h-5.5zM9 2.5h5.5v11h-5.5z"/><path d="M3 5.5h2.5M3 8h2.5M10.5 5.5h2.5M10.5 8h2.5M10.5 10.5h2.5"/></svg></button>
       <span class="spacer"></span>
-      <button id="btn-update" type="button" class="primary" hidden></button>
     </header>
 
     <main class="workspace">
@@ -69,6 +68,7 @@
           <span class="spacer"></span>
           <span id="status-position"></span>
           <span id="status-language" title="Ngôn ngữ của tab"></span>
+          <span id="status-connection" title="Kết nối của tab"></span>
           <span id="status-cursor" title="Cursor đang chọn của tab"></span>
           <span id="run-status"></span>
           <span id="status-rows"></span>
@@ -77,10 +77,12 @@
     </main>
 
     <footer id="statusbar" class="statusbar" role="status" aria-label="Trạng thái ứng dụng">
-      <span id="status-state">Chưa kết nối</span>
-      <span id="connection-status"></span>
+      <span id="status-state">Chưa có kết nối</span>
       <span class="spacer"></span>
-      <button id="app-version" type="button" class="version" title="Kiểm tra cập nhật"></button>
+      <span class="version-box">
+        <button id="app-version" type="button" class="version" title="Kiểm tra cập nhật"></button>
+        <button id="btn-update" type="button" class="update" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v8M4.5 7l3.5 3.5L11.5 7"/><path d="M2.5 13.5h11"/></svg><span id="btn-update-label"></span></button>
+      </span>
     </footer>
 
     <dialog id="connect-dialog">

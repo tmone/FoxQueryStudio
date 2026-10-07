@@ -81,7 +81,7 @@ try {
   await page.waitForFunction(() => !document.getElementById('connect-dialog').open || !document.getElementById('connect-error').hidden, null, { timeout: 120_000 });
   assert.equal(await page.isVisible('#connect-error'), false, `connect failed: ${await page.textContent('#connect-error')}`);
   const connectSeconds = ((Date.now() - connectStarted) / 1000).toFixed(1);
-  assert.match(await page.textContent('#connection-status'), new RegExp(DATABASE));
+  assert.match(await page.textContent('#status-connection'), new RegExp(DATABASE));
   assert.equal(await page.isDisabled('#btn-run'), false);
   step('connects over TCP and loads the schema', `${connectSeconds} s`);
 
@@ -96,7 +96,7 @@ try {
   assert.equal(await page.textContent('#explorer-tree > .server > .database > summary'), DATABASE);
   assert.equal(await page.locator('#explorer-tree > .server > .database > .group').count(), 2);
   assert.equal(await page.textContent('#explorer-tree .database > .cursors > summary'), 'Cursor của tab (0)');
-  assert.equal(await page.textContent('#status-state'), 'Đã kết nối');
+  assert.equal(await page.textContent('#status-state'), '1 kết nối đang mở');
   assert.equal(await page.isEnabled('#btn-disconnect'), true);
 
   await page.fill('#explorer-filter', 'HCSEM_Employees');
@@ -233,7 +233,7 @@ try {
   await page.keyboard.press('Control+Shift+R');
   await page.waitForFunction((label) => document.querySelector('#explorer-tree .group > summary')?.textContent === label, `Bảng (${tableCount})`, { timeout: 60_000 });
   await page.click('#btn-disconnect');
-  await page.waitForFunction(() => document.getElementById('status-state').textContent === 'Chưa kết nối');
+  await page.waitForFunction(() => document.getElementById('status-state').textContent === 'Chưa có kết nối');
   assert.equal(await page.isDisabled('#btn-run'), true);
   assert.match(await page.textContent('#explorer-tree'), /Kết nối để xem/);
   assert.equal(await page.textContent('#status-cursor'), '');

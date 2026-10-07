@@ -133,7 +133,7 @@ try {
   state.file = newProgram;
   await page.click('#app-version');
   await page.waitForSelector('#btn-update:not([hidden])', { timeout: 60_000 });
-  assert.equal(await page.textContent('#btn-update'), `Tải bản ${NEW_VERSION}`);
+  assert.equal(await page.textContent('#btn-update-label'), `Tải bản ${NEW_VERSION}`);
   assert.ok(!state.requests.includes('/download'), 'nothing is downloaded before the user asks');
   log(`ok  finds ${NEW_VERSION} and waits for the user`);
   await page.screenshot({ path: 'test-results/update-available.png' });
@@ -148,7 +148,7 @@ try {
   await page.click('#app-version');
   await page.waitForSelector('#btn-update:not([hidden])', { timeout: 60_000 });
   await page.click('#btn-update');
-  await page.waitForFunction((label) => document.getElementById('btn-update').textContent === label, `Khởi động lại để cập nhật ${NEW_VERSION}`, { timeout: 300_000 });
+  await page.waitForFunction((label) => document.getElementById('btn-update-label').textContent === label, `Khởi động lại để cập nhật ${NEW_VERSION}`, { timeout: 300_000 });
   assert.equal(sha256(`${PROGRAM}.new`), sha256(newProgram));
   log('ok  downloads the new program on request and verifies it');
   await page.screenshot({ path: 'test-results/update-downloaded.png' });

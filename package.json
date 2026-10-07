@@ -14,7 +14,9 @@
     "test:mutation": "node scripts/mutation-check.mjs",
     "fixtures": "node scripts/fetch-northwind.mjs",
     "e2e": "node test/e2e/smoke.mjs",
-    "e2e:real": "node test/e2e/real-server.mjs"
+    "e2e:real": "node test/e2e/real-server.mjs",
+    "e2e:update": "node test/e2e/update.mjs",
+    "release:fake": "node scripts/fake-release.mjs"
   },
   "dependencies": {
     "mssql": "^12.7.3"

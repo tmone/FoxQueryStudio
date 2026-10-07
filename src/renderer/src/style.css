@@ -286,9 +286,71 @@ button.version.failed {
 }
 
 .context-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   border: 0;
   background: transparent;
   text-align: left;
+}
+
+.context-menu svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--muted);
+}
+
+/* Version and update: a cell of their own at the right end of the app status bar. */
+.statusbar .version-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: stretch;
+  margin-right: -10px;
+  padding: 0 10px;
+  border-left: 1px solid var(--border);
+}
+
+.statusbar.connected .version-box {
+  border-left-color: rgb(255 255 255 / 40%);
+}
+
+/* Version and update at the right end of the app status bar. */
+.statusbar button.update {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border-color: transparent;
+  border-radius: 3px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 12px;
+}
+
+.statusbar button.update[hidden] {
+  display: none;
+}
+
+.statusbar.connected button.update {
+  background: var(--accent-text);
+  color: var(--accent);
+}
+
+.statusbar button.update svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .toolbar .divider {
@@ -360,7 +422,7 @@ button.tool[aria-pressed='true'] {
   color: var(--accent-text);
 }
 
-.statusbar > span:empty {
+.statusbar > span:empty:not(.spacer) {
   display: none;
 }
 
@@ -534,7 +596,7 @@ body.show-compare .column-title {
   background: var(--query-error);
 }
 
-.query-status > span:empty {
+.query-status > span:empty:not(.spacer) {
   display: none;
 }
 

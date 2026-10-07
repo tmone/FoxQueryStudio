@@ -83,12 +83,13 @@ const statusBar = el('statusbar');
 const queryStatus = el('query-status');
 const queryState = el('query-state');
 const statusState = el('status-state');
-const connectionStatus = el('connection-status');
+const statusConnection = el('status-connection');
 const statusCursor = el('status-cursor');
 const statusRows = el('status-rows');
 const runStatus = el('run-status');
 const statusPosition = el('status-position');
 const updateButton = el<HTMLButtonElement>('btn-update');
+const updateLabel = el('btn-update-label');
 const versionButton = el<HTMLButtonElement>('app-version');
 const statusLanguage = el('status-language');
 const languageButtons = [...document.querySelectorAll<HTMLButtonElement>('.language-switch button')];
@@ -137,9 +138,10 @@ const explorer = createExplorer(el('explorer-tree'), {
 
 function renderStatus(): void {
   const connection = connectionOf(active);
-  statusBar.classList.toggle('connected', connection !== undefined);
-  statusState.textContent = connection ? 'Đã kết nối' : 'Chưa kết nối';
-  connectionStatus.textContent = !connection ? '' : connection.kind === 'foxpro' ? `FoxPro: ${connection.localPath}` : `${connection.user} @ ${connection.server} / ${connection.database}`;
+  // The app bar speaks for the whole window; the tab's own connection is on the strip under the editor.
+  statusBar.classList.toggle('connected', connections.length > 0);
+  statusState.textContent = connections.length ? `${connections.length} kết nối đang mở` : 'Chưa có kết nối';
+  statusConnection.textContent = !connection ? 'Tab chưa gắn kết nối' : connection.kind === 'foxpro' ? `FoxPro: ${connection.localPath}` : `${connection.user} @ ${connection.server} / ${connection.database}`;
   statusCursor.textContent = active.currentCursor ? `Cursor: ${active.currentCursor}` : '';
 
   const result = active.result;
@@ -703,7 +705,8 @@ const UPDATE_HINTS: Partial<Record<UpdateStatus['state'], string>> = {
 function renderUpdate(status: UpdateStatus): void {
   const label = updateActionLabel(status);
   updateButton.hidden = label === undefined;
-  updateButton.textContent = label ?? '';
+  updateLabel.textContent = label ?? '';
+  updateButton.title = status.state === 'available' ? `Có bản ${status.newVersion}; nhấn để tải về` : (label ?? '');
   updateButton.disabled = status.state === 'downloading';
   updateButton.dataset.state = status.state;
 

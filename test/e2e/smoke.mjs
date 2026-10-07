@@ -69,10 +69,15 @@ try {
   ok('handles shortcuts once each: new tab, close tab, toggle panels');
 
   // ---- Status bar and toolbar while disconnected -------------------------------------------
-  assert.equal(await page.textContent('#status-state'), 'Chưa kết nối');
+  assert.equal(await page.textContent('#status-state'), 'Chưa có kết nối');
+  assert.equal(await page.textContent('#status-connection'), 'Tab chưa gắn kết nối');
   assert.equal(await page.isDisabled('#btn-run'), true, 'run is disabled until connected');
   assert.equal(await page.isDisabled('#btn-disconnect'), true);
   assert.match(await page.textContent('#app-version'), /^v\d+\.\d+\.\d+$/);
+  assert.equal(await page.isHidden('#btn-update'), true, 'no update button without a newer version');
+  // The version sits in its own cell at the far right of the app status bar, as in SSMS.
+  const [bar, box] = await page.evaluate(() => [document.getElementById('statusbar').getBoundingClientRect().right, document.querySelector('.statusbar .version-box').getBoundingClientRect().right]);
+  assert.ok(Math.abs(bar - box) < 2, 'version box is flush right');
   await page.locator('.tab').first().click();
   await page.click('.monaco-editor');
   await page.keyboard.press('Control+Home');
@@ -170,8 +175,8 @@ try {
     assert.match(await messages(), /Đã mở .*northwind\.dbc: 11 bảng\./);
     assert.match(await page.textContent('#explorer-tree .server:not(.offline) > summary'), /^FoxPro \(.*northwind\.dbc\)$/);
     assert.equal(await page.textContent('#explorer-tree .group > summary'), 'Bảng (11)');
-    assert.match(await page.textContent('#status-state'), /Đã kết nối/);
-    assert.match(await page.textContent('#connection-status'), /^FoxPro: .*northwind\.dbc$/);
+    assert.equal(await page.textContent('#status-state'), '1 kết nối đang mở');
+    assert.match(await page.textContent('#status-connection'), /^FoxPro: .*northwind\.dbc$/);
     assert.equal(await page.isDisabled('#btn-run'), false);
     ok('opens a FoxPro database file with no server connection');
 
@@ -238,7 +243,7 @@ try {
     ok('completes table and column names of the FoxPro database in both languages');
 
     await page.click('#btn-disconnect');
-    await page.waitForFunction(() => document.getElementById('status-state').textContent === 'Chưa kết nối');
+    await page.waitForFunction(() => document.getElementById('status-state').textContent === 'Chưa có kết nối');
     assert.equal(await page.isDisabled('#btn-run'), true);
     // The database stays in the tree, closed, until it is removed.
     assert.match(await page.textContent('#explorer-tree .server.offline > summary'), /northwind\.dbc/);
@@ -257,9 +262,11 @@ try {
 
     // Right-click → remove forgets it.
     await page.click('#explorer-tree .server > summary', { button: 'right' });
+    assert.equal(await page.locator('.context-menu button svg').count(), 4, 'every menu entry has an icon');
+    await page.screenshot({ path: OUT_DIR + '/smoke-context-menu.png' });
     await page.click('.context-menu button:has-text("Xóa khỏi danh sách")');
     await page.waitForFunction(() => document.querySelectorAll('#explorer-tree .server').length === 0);
-    assert.equal(await page.textContent('#status-state'), 'Chưa kết nối');
+    assert.equal(await page.textContent('#status-state'), 'Chưa có kết nối');
     ok('removes a remembered database from the tree');
   } else {
     console.log('skip local FoxPro database (run `npm run fixtures`)');
