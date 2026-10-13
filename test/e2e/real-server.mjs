@@ -245,6 +245,8 @@ try {
   // Opening another database's node loads its objects on demand.
   await page.click('#explorer-tree > .server > .database:not(.current) > summary');
   await page.waitForFunction(() => document.querySelectorAll('#explorer-tree > .server > .database.current').length === 1);
+  // The node the user opened stays open, with its objects, after the tree is redrawn.
+  await page.waitForFunction(() => { const d = document.querySelector('#explorer-tree > .server > .database.current'); return d?.open && d.querySelector(':scope > .group') !== null; }, null, { timeout: 60_000 });
   step('switches the tab between databases and lists the objects of any database on demand');
 
   // ---- Refresh and disconnect ------------------------------------------------------------

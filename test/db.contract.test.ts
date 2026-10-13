@@ -16,7 +16,7 @@ class FakeRequest extends EventEmitter {
   arrayRowMode = false;
   cancelled = 0;
 
-  constructor(private readonly script: Step[]) {
+  constructor(private readonly scripts: Step[][]) {
     super();
   }
 
@@ -24,8 +24,13 @@ class FakeRequest extends EventEmitter {
     this.cancelled++;
   }
 
+  /** The probe at connect: a plain query answered without touching the scripted batches. */
+  async query(): Promise<{ recordset: Record<string, unknown>[] }> {
+    return { recordset: [{ name: 'MSSQLSERVER', db: 'd' }] };
+  }
+
   async batch(): Promise<void> {
-    for (const [event, payload] of this.script) {
+    for (const [event, payload] of this.scripts.shift() ?? [['done']]) {
       await Promise.resolve();
       // After a cancel the server stops sending rows and reports the cancellation.
       if (this.cancelled && event === 'row') continue;
@@ -52,7 +57,7 @@ function fakeDriver(scripts: Step[][]) {
       this.state.closed = true;
     }
     request() {
-      const request = new FakeRequest(scripts.shift() ?? [['done']]);
+      const request = new FakeRequest(scripts);
       this.state.requests.push(request);
       return request;
     }
@@ -75,7 +80,9 @@ describe('database service against the documented driver contract', () => {
 
   it('probes the server on connect and closes the probe connection', async () => {
     const { pools } = await connected([]);
-    expect(pools).toEqual([{ closed: true, requests: [] }]);
+    expect(pools).toHaveLength(1);
+    expect(pools[0].closed).toBe(true);
+    expect(pools[0].requests).toHaveLength(1);
   });
 
   it('collects result sets, rows and messages in order', async () => {

@@ -180,21 +180,50 @@ button.version.failed {
   font-weight: 600;
 }
 
-/* Small coloured marker in place of an icon, one colour per kind of object. */
-.tree summary::before,
-.tree li::before {
-  content: '';
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin: 0 6px;
-  border-radius: 2px;
-  background: var(--muted);
-  vertical-align: baseline;
+/* Line icons in the colours SSMS uses for each kind of object. */
+.tree .icon {
+  width: 16px;
+  height: 16px;
+  margin: 0 5px 0 2px;
+  vertical-align: -3px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.1;
+  stroke-linejoin: round;
+  stroke-linecap: round;
 }
 
-.tree .server > summary::before {
-  background: #6b7a8f;
+.tree .icon-server {
+  color: #4f6b8f;
+}
+
+.tree .icon-serverOffline {
+  color: var(--muted);
+}
+
+.tree .icon-database {
+  color: #c8891e;
+}
+
+.tree .icon-folder {
+  color: #d9a93a;
+  fill: #fbe9b7;
+}
+
+.tree .icon-table {
+  color: #2f7ed8;
+}
+
+.tree .icon-view {
+  color: #2e9e6b;
+}
+
+.tree .icon-column {
+  color: #8aa4c8;
+}
+
+.tree .icon-cursor {
+  color: #d9722e;
 }
 
 .tree .server + .server {
@@ -212,47 +241,10 @@ button.version.failed {
   display: none;
 }
 
+/* The connection and database new queries run on. */
+.tree .server.current > summary,
 .tree .database.current > summary {
   color: var(--accent);
-}
-
-/* The connection new queries run on. */
-.tree .server.current > summary {
-  color: var(--accent);
-}
-
-.tree .server.current > summary::before {
-  background: var(--accent);
-}
-
-.tree .database > summary::before {
-  background: #c8891e;
-  border-radius: 50%;
-}
-
-.tree .group > summary::before,
-.tree .folder > summary::before,
-.tree .cursors > summary::before {
-  background: #d9b44a;
-}
-
-.tree .table > summary::before {
-  background: #2f7ed8;
-}
-
-.tree .view > summary::before {
-  background: #2e9e6b;
-}
-
-.tree li.column::before {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #8aa4c8;
-}
-
-.tree li.cursor::before {
-  background: #d9722e;
 }
 
 .tree ul {

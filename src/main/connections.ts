@@ -62,8 +62,8 @@ export function createConnections(newSqlDatabase: () => SqlDatabase, newFoxEngin
     async connectSql(profile: ConnectionProfile, id: string): Promise<ConnectionInfo> {
       await this.disconnect(id);
       const backend = newSqlDatabase();
-      await backend.connect(profile);
-      const info: ConnectionInfo = { id, kind: 'sql', server: profile.server, user: profile.user, database: profile.database ?? '' };
+      const database = await backend.connect(profile);
+      const info: ConnectionInfo = { id, kind: 'sql', server: profile.server, user: profile.user, database };
       connections.set(info.id, { info, backend });
       return info;
     },

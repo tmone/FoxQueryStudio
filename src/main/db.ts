@@ -90,8 +90,8 @@ function toCell(value: unknown): CellValue {
  * so tests can run the same code against LocalDB, which the default driver cannot reach.
  */
 export interface SqlDatabase extends DbBackend {
-  /** Checks the profile by opening a connection; the connection itself is kept per session. */
-  connect(profile: ConnectionProfile): Promise<void>;
+  /** Checks the profile by opening a connection and returns the database it lands in (the login's default when none was named). */
+  connect(profile: ConnectionProfile): Promise<string>;
 }
 
 export function createDatabase(driver: SqlDriver, buildConfig: (profile: ConnectionProfile) => sqlTypes.config): SqlDatabase {
@@ -130,15 +130,14 @@ export function createDatabase(driver: SqlDriver, buildConfig: (profile: Connect
         // With both an instance name and a port, the port decides where the connection went;
         // it must be the instance the user named, not whichever one listens there.
         const { instance, port } = parseServerName(p.server);
-        if (instance && port) {
-          const { recordset } = await pool.request().query('SELECT @@SERVICENAME AS name');
-          const actual = String(recordset[0]?.name ?? '');
-          if (actual.toLowerCase() !== instance.toLowerCase()) throw new Error(`Cổng ${port} là instance ${actual}, không phải ${instance}. Sửa tên instance hoặc cổng.`);
-        }
+        const { recordset } = await pool.request().query('SELECT @@SERVICENAME AS name, DB_NAME() AS db');
+        const actual = String(recordset[0]?.name ?? '');
+        if (instance && port && actual.toLowerCase() !== instance.toLowerCase()) throw new Error(`Cổng ${port} là instance ${actual}, không phải ${instance}. Sửa tên instance hoặc cổng.`);
+        profile = p;
+        return String(recordset[0]?.db ?? p.database ?? '');
       } finally {
         await pool.close();
       }
-      profile = p;
     },
 
     disconnect,

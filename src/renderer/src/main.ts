@@ -554,7 +554,7 @@ function selectConnection(connectionId: string, database?: string): void {
     }
   }
   // As in SSMS, choosing a node never moves an open query; the database box or the context menu does that.
-  renderExplorer();
+  explorer.setCurrent(currentConnectionId, currentDatabase);
   renderStatus();
 }
 
@@ -570,7 +570,7 @@ function bindTab(tab: Tab, connectionId: string, database?: string): void {
   currentDatabase = tab.database;
   void ensureLoaded(connectionId, tab.database).then(() => {
     if (tab === active) activate(tab);
-    renderExplorer();
+    explorer.setCurrent(currentConnectionId, currentDatabase);
   });
 }
 
@@ -582,7 +582,7 @@ function setTabDatabase(tab: Tab, database: string): void {
   currentDatabase = database;
   void ensureLoaded(tab.connectionId, database).then(() => {
     if (tab === active) activate(tab);
-    renderExplorer();
+    explorer.setCurrent(currentConnectionId, currentDatabase);
   });
 }
 
@@ -623,7 +623,7 @@ async function ensureLoaded(connectionId: string, database: string | undefined):
 
 async function loadDatabase(connectionId: string, database: string): Promise<void> {
   await ensureLoaded(connectionId, database);
-  renderExplorer();
+  explorer.databaseLoaded(connectionId, database);
   if (active.connectionId === connectionId && active.database === database) setSchema(lookups(active).tables);
 }
 
@@ -671,7 +671,7 @@ async function submitConnection(event: SubmitEvent): Promise<void> {
     // An empty password means "the one stored with the remembered connection".
     const info = !profile.password && saved?.hasPassword ? await window.db.connectSaved(saved.id) : await window.db.connect(profile, field('remember').checked);
     await loadRegistrations();
-    await addConnection(info, profile.database);
+    await addConnection(info, info.database);
     connectDialog.close();
     editor.focus();
   } catch (e) {
