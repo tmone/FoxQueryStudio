@@ -51,6 +51,8 @@ interface Tab {
   pane: PaneName;
   /** False until the tab has something to show below the editor; the pane stays closed meanwhile. */
   hasOutput: boolean;
+  /** True while the tab's query is on its way; other tabs are free to run meanwhile. */
+  running: boolean;
 }
 
 /** The objects of one database and the column lookups the converters need for it. */
@@ -115,7 +117,8 @@ let registrations: Registration[] = [];
 /** The connection and database new tabs are bound to. */
 let currentConnectionId: string | undefined;
 let currentDatabase: string | undefined;
-let running = false;
+/** True while a connection is being opened; that is the only thing that waits on the whole window. */
+let connecting = false;
 const NO_LOOKUPS: Lookups = { tables: [], resolveColumnKind: columnKindResolver([]), resolveColumnWidth: columnWidthResolver([]) };
 
 const findConnection = (id: string | undefined) => connections.find((c) => c.id === id);
@@ -158,6 +161,7 @@ function renderStatus(): void {
   const result = active.result;
   const current = result?.resultSets[active.activeSet];
   statusRows.textContent = current ? `${current.rows.length} dòng${result!.truncated ? ' (đã cắt)' : ''}` : '';
+  const running = active.running;
   runStatus.textContent = running ? 'Đang chạy…' : result ? (result.error ? 'Lỗi' : seconds(result.elapsedMs)) : '';
   queryState.textContent = running ? 'Đang chạy truy vấn…' : !result ? 'Chưa chạy truy vấn' : result.error ? 'Truy vấn có lỗi' : 'Truy vấn chạy xong';
   queryStatus.classList.toggle('failed', !running && result?.error !== undefined);
@@ -167,7 +171,7 @@ function renderStatus(): void {
   statusLanguage.textContent = LANGUAGES[active.language].label;
   for (const button of languageButtons) button.setAttribute('aria-pressed', String(button.dataset.language === active.language));
 
-  runButton.disabled = !connection || running;
+  runButton.disabled = !connection || running || connecting;
   disconnectButton.disabled = !connection;
   disconnectButton.title = connection ? `Ngắt ${connectionLabel(connection)}` : 'Ngắt kết nối';
 }
@@ -232,6 +236,7 @@ function newTab(text = '', filePath?: string, language: QueryLanguage = filePath
     activeSet: 0,
     pane: 'results',
     hasOutput: false,
+    running: false,
   };
   tabs.push(tab);
   activate(tab);
@@ -344,7 +349,7 @@ const executeOn =
 async function run(): Promise<void> {
   const tab = active;
   const connection = connectionOf(tab);
-  if (!connection || running) return;
+  if (!connection || tab.running || connecting) return;
   const { resolveColumnKind, resolveColumnWidth } = lookups(tab);
   const executeOnServer = executeOn(connection.id, tab.database);
   const selection = editor.getSelection();
@@ -354,7 +359,7 @@ async function run(): Promise<void> {
   const shift = (list: Diagnostic[]) => list.map((d) => ({ ...d, line: d.line + lineOffset }));
 
   const onExecute = () => {
-    running = true;
+    tab.running = true;
     renderStatus();
   };
 
@@ -388,7 +393,8 @@ async function run(): Promise<void> {
       lines.push(...formatDiagnostics('Chưa dịch được sang FoxPro,', shift(outcome.conversion.errors)), ...formatDiagnostics('Cảnh báo', shift(outcome.conversion.warnings)));
     }
   } finally {
-    running = false;
+    tab.running = false;
+    renderStatus();
   }
   setMarkers(tab, errors, warnings);
 
@@ -707,9 +713,9 @@ function report(tab: Tab, message: string): void {
 
 /** Opens a FoxPro database file as a connection of its own, run by FoxPro itself. */
 async function openFoxPro(): Promise<void> {
-  if (running) return;
+  if (connecting) return;
   const tab = active;
-  running = true;
+  connecting = true;
   renderStatus();
   try {
     const info = await window.db.openFoxPro();
@@ -720,16 +726,16 @@ async function openFoxPro(): Promise<void> {
   } catch (e) {
     report(tab, `Không mở được CSDL FoxPro: ${ipcErrorMessage(e)}`);
   } finally {
-    running = false;
+    connecting = false;
     renderStatus();
   }
 }
 
 /** Reopens a remembered connection; a SQL one without a stored password asks for it. */
 async function connectSaved(registrationId: string): Promise<void> {
-  if (running) return;
+  if (connecting) return;
   const tab = active;
-  running = true;
+  connecting = true;
   renderStatus();
   try {
     const info = await window.db.connectSaved(registrationId);
@@ -740,7 +746,7 @@ async function connectSaved(registrationId: string): Promise<void> {
     if (message.includes(NEEDS_PASSWORD)) openConnectDialog(registrationId);
     else report(tab, `Không kết nối được: ${message}`);
   } finally {
-    running = false;
+    connecting = false;
     renderStatus();
   }
 }

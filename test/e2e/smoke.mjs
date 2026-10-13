@@ -261,7 +261,9 @@ try {
     assert.match(await messages(), /Đã mở .*northwind\.dbc/);
     ok('reopens a remembered database and resolves a table to its container');
 
-    // Right-click → remove forgets it.
+    // Right-click → remove forgets it. The tree is rebuilt while the objects load, which closes any open menu, so wait for it to settle first.
+    await page.waitForSelector('#explorer-tree .spinner', { timeout: 10_000 }).catch(() => undefined);
+    await page.waitForFunction(() => !document.querySelector('#explorer-tree .spinner') && document.querySelector('#explorer-tree .database .group'), null, { timeout: 60_000 });
     await page.click('#explorer-tree .server > summary', { button: 'right' });
     assert.equal(await page.locator('.context-menu button svg').count(), 4, 'every menu entry has an icon');
     await page.screenshot({ path: OUT_DIR + '/smoke-context-menu.png' });

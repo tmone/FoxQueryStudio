@@ -19,6 +19,8 @@ const CRLF = '\r\n';
 const STARTUP_TIMEOUT_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 120_000;
 const POLL_MS = 10;
+/** The session that lists the objects of the database; it comes and goes with each listing. */
+const SCHEMA_SESSION = '__schema';
 const EXIT_TIMEOUT_MS = 5000;
 const STANDARD_LOCATIONS = ['C:\\Program Files (x86)\\Microsoft Visual FoxPro 9\\vfp9.exe', 'C:\\Program Files\\Microsoft Visual FoxPro 9\\vfp9.exe'];
 
@@ -283,67 +285,101 @@ export interface FoxEngine extends DbBackend {
   readonly path: string | undefined;
 }
 
+/** One FoxPro process: its own work folder and its own queue of requests. */
+interface Worker {
+  child: ChildProcess | undefined;
+  workDir: string;
+  queue: Promise<unknown>;
+}
+
+/**
+ * The engine runs one FoxPro process per query tab (session), so a long query in one tab
+ * never holds up another: FoxPro is single-threaded, so independence means separate processes.
+ * Each process costs about 20 MB and starts in under a second.
+ */
 export function createFoxEngine(locateVfp: () => string | undefined = findVfp): FoxEngine {
-  let child: ChildProcess | undefined;
-  let workDir: string | undefined;
   let openedPath: string | undefined;
-  /** Requests run one at a time; FoxPro is single-threaded. */
-  let queue: Promise<unknown> = Promise.resolve();
+  let exe: string | undefined;
+  let program: string | undefined;
+  const workers = new Map<string, Worker>();
 
-  const file = (name: string) => join(workDir!, name);
-
-  async function waitFor(path: string, timeoutMs: number, what: string): Promise<void> {
+  async function waitFor(worker: Worker, name: string, timeoutMs: number, what: string): Promise<void> {
     const deadline = Date.now() + timeoutMs;
-    while (!existsSync(path)) {
-      if (!child) throw new Error(`FoxPro đã dừng khi ${what}.`);
+    while (!existsSync(join(worker.workDir, name))) {
+      if (!worker.child) throw new Error(`FoxPro đã dừng khi ${what}.`);
       if (Date.now() > deadline) throw new Error(`FoxPro không trả lời khi ${what}.`);
       await delay(POLL_MS);
     }
   }
 
-  function stop(): void {
-    const dir = workDir;
-    child?.kill();
-    child = undefined;
-    workDir = undefined;
-    openedPath = undefined;
+  function stop(sessionId: string, worker: Worker): void {
+    if (workers.get(sessionId) === worker) workers.delete(sessionId);
+    worker.child?.kill();
+    worker.child = undefined;
     // FoxPro may still hold its folder for a moment; a leftover temp folder is harmless.
-    if (dir) {
-      try {
-        rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
-      } catch {
-        // Left for the system to clean up.
-      }
+    try {
+      rmSync(worker.workDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    } catch {
+      // Left for the system to clean up.
     }
   }
 
-  /** Lets FoxPro close its tables and leave by itself, then clears up. */
-  async function shutdown(): Promise<void> {
-    const running = child;
-    if (!running) return;
-    const exited = new Promise<void>((resolve) => running.once('exit', () => resolve()));
-    await request('QUIT||0').catch(() => undefined);
-    await Promise.race([exited, delay(EXIT_TIMEOUT_MS)]);
-    stop();
-  }
-
-  function request(head: string, body: string[] = []): Promise<Answer> {
-    const task = queue.then(async () => {
-      if (!child || !workDir) throw new Error('Chưa mở CSDL FoxPro.');
+  function request(worker: Worker, sessionId: string, head: string, body: string[] = []): Promise<Answer> {
+    const file = (name: string) => join(worker.workDir, name);
+    const task = worker.queue.then(async () => {
+      if (!worker.child) throw new Error('Chưa mở CSDL FoxPro.');
       rmSync(file('answer.txt'), { force: true });
       writeFileSync(file('request.part'), Buffer.from([head, ...body].join(CRLF) + CRLF, 'latin1'));
       renameSync(file('request.part'), file('request.txt'));
       try {
-        await waitFor(file('answer.txt'), REQUEST_TIMEOUT_MS, 'chạy lệnh');
+        await waitFor(worker, 'answer.txt', REQUEST_TIMEOUT_MS, 'chạy lệnh');
       } catch (e) {
-        // A query that never returns holds the only thread; the engine is given up on.
-        stop();
+        // A query that never returns holds this tab's process; only that process is given up on.
+        stop(sessionId, worker);
         throw e;
       }
       return parseAnswer(readFileSync(file('answer.txt'), 'latin1'));
     });
-    queue = task.catch(() => undefined);
+    worker.queue = task.catch(() => undefined);
     return task;
+  }
+
+  /** Starts a FoxPro process for the session, or returns the one it already has. */
+  async function workerFor(sessionId: string): Promise<Worker> {
+    const existing = workers.get(sessionId);
+    if (existing?.child) return existing;
+    if (!exe || !program) throw new Error('Chưa mở CSDL FoxPro.');
+    const workDir = mkdtempSync(join(tmpdir(), 'fqs-fox-'));
+    const worker: Worker = { child: undefined, workDir, queue: Promise.resolve() };
+    writeFileSync(join(workDir, 'server.prg'), Buffer.from(program.replaceAll('@WORK@', workDir).replace(/\r?\n/g, CRLF), 'latin1'));
+    // CODEPAGE pins the session to Windows-1252 whatever the system locale is.
+    writeFileSync(join(workDir, 'server.fpw'), `SCREEN=OFF${CRLF}RESOURCE=OFF${CRLF}CODEPAGE=1252${CRLF}COMMAND=DO "${join(workDir, 'server.prg')}"${CRLF}`, 'latin1');
+    const started = spawn(exe, ['-T', `-C${join(workDir, 'server.fpw')}`], { cwd: workDir, stdio: 'ignore', windowsHide: true });
+    worker.child = started;
+    const gone = () => {
+      if (worker.child === started) worker.child = undefined;
+    };
+    started.on('exit', gone);
+    started.on('error', gone);
+    workers.set(sessionId, worker);
+    try {
+      await waitFor(worker, 'ready.txt', STARTUP_TIMEOUT_MS, 'khởi động');
+    } catch (e) {
+      stop(sessionId, worker);
+      throw e;
+    }
+    return worker;
+  }
+
+  /** Lets a FoxPro process close its tables and leave by itself, then clears up. */
+  async function shutdown(sessionId: string): Promise<void> {
+    const worker = workers.get(sessionId);
+    const child = worker?.child;
+    if (!worker || !child) return;
+    const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
+    await request(worker, sessionId, 'QUIT||0').catch(() => undefined);
+    await Promise.race([exited, delay(EXIT_TIMEOUT_MS)]);
+    stop(sessionId, worker);
   }
 
   return {
@@ -352,40 +388,25 @@ export function createFoxEngine(locateVfp: () => string | undefined = findVfp): 
     },
 
     async openDatabase(path) {
-      const exe = locateVfp();
-      if (!exe) throw new Error('Không tìm thấy Visual FoxPro 9 trên máy này (vfp9.exe). Đặt biến môi trường FQS_VFP_EXE trỏ tới nó.');
+      const found = locateVfp();
+      if (!found) throw new Error('Không tìm thấy Visual FoxPro 9 trên máy này (vfp9.exe). Đặt biến môi trường FQS_VFP_EXE trỏ tới nó.');
       const isContainer = path.toLowerCase().endsWith('.dbc');
       const directory = statSync(path).isDirectory() ? path : dirname(path);
       if (!fitsCodePage(path)) throw new Error('Đường dẫn có ký tự ngoài bảng mã Windows-1252; hãy chuyển CSDL sang thư mục có tên không dấu.');
-      await shutdown();
-
-      workDir = mkdtempSync(join(tmpdir(), 'fqs-fox-'));
-      const program = SERVER_PROGRAM.replaceAll('@WORK@', workDir).replaceAll('@DIR@', directory).replaceAll('@DBC@', isContainer ? path : '');
-      writeFileSync(file('server.prg'), Buffer.from(program.replace(/\r?\n/g, CRLF), 'latin1'));
-      // CODEPAGE pins the session to Windows-1252 whatever the system locale is.
-      writeFileSync(file('server.fpw'), `SCREEN=OFF${CRLF}RESOURCE=OFF${CRLF}CODEPAGE=1252${CRLF}COMMAND=DO "${file('server.prg')}"${CRLF}`, 'latin1');
-      const started = spawn(exe, ['-T', `-C${file('server.fpw')}`], { cwd: workDir, stdio: 'ignore', windowsHide: true });
-      child = started;
-      started.on('exit', () => {
-        if (child === started) child = undefined;
-      });
-      started.on('error', () => {
-        if (child === started) child = undefined;
-      });
-      try {
-        await waitFor(file('ready.txt'), STARTUP_TIMEOUT_MS, 'khởi động');
-      } catch (e) {
-        stop();
-        throw e;
-      }
+      await Promise.all([...workers.keys()].map(shutdown));
+      exe = found;
+      program = SERVER_PROGRAM.replaceAll('@DIR@', directory).replaceAll('@DBC@', isContainer ? path : '');
+      // The first process proves FoxPro starts and the database opens; it then serves the object list.
+      await workerFor(SCHEMA_SESSION);
       openedPath = path;
     },
 
-    disconnect: shutdown,
-
-    async closeSession(sessionId) {
-      if (child) await request(`CLOSE|${sessionId}|0`).catch(() => undefined);
+    async disconnect() {
+      await Promise.all([...workers.keys()].map(shutdown));
+      openedPath = undefined;
     },
+
+    closeSession: shutdown,
 
     async listDatabases() {
       const path = openedPath ?? '';
@@ -393,8 +414,9 @@ export function createFoxEngine(locateVfp: () => string | undefined = findVfp): 
     },
 
     async loadSchema() {
-      const answer = await request('SCHEMA|__schema|0');
-      await request('CLOSE|__schema|0');
+      const worker = await workerFor(SCHEMA_SESSION);
+      const answer = await request(worker, SCHEMA_SESSION, `SCHEMA|${SCHEMA_SESSION}|0`);
+      await shutdown(SCHEMA_SESSION);
       if (!answer.tables.length) throw new Error(answer.errors[0] ?? 'Không tìm thấy bảng nào.');
       return answer.tables.sort((a, b) => a.name.localeCompare(b.name));
     },
@@ -409,7 +431,8 @@ export function createFoxEngine(locateVfp: () => string | undefined = findVfp): 
 
       let answer: Answer;
       try {
-        answer = await request(`EXEC|${sessionId}|${maxRows}`, statements.flatMap((s) => [`#S|${s.dumps ? 1 : 0}`, ...s.statement.split('\n')]));
+        const worker = await workerFor(sessionId);
+        answer = await request(worker, sessionId, `EXEC|${sessionId}|${maxRows}`, statements.flatMap((s) => [`#S|${s.dumps ? 1 : 0}`, ...s.statement.split('\n')]));
       } catch (e) {
         return failed((e as Error).message, true);
       }

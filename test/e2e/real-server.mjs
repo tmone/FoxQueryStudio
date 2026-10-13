@@ -241,6 +241,28 @@ try {
   await page.click('.output-tabs > button[data-pane=results]');
   await page.screenshot({ path: `${OUT_DIR}/real-final.png` });
 
+  // ---- Tabs run independently: a slow query in one does not hold the other -------------
+  await page.keyboard.press('Control+N');
+  await page.keyboard.press('Control+Shift+L');
+  await page.click('#editor');
+  await page.keyboard.insertText("WAITFOR DELAY '00:00:06'; SELECT 'slow' AS a");
+  await page.evaluate(() => (document.getElementById('pane-messages').textContent = ''));
+  const slowStarted = Date.now();
+  await page.keyboard.press('F5');
+  await page.waitForFunction(() => document.getElementById('query-state').textContent === 'Đang chạy truy vấn…');
+  await page.keyboard.press('Control+N');
+  await page.keyboard.press('Control+Shift+L');
+  text = await run("SELECT 'quick' AS b");
+  const quickSeconds = (Date.now() - slowStarted) / 1000;
+  assert.deepEqual(await visibleRows(), [['quick']]);
+  assert.ok(quickSeconds < 5, `the quick query waited ${quickSeconds.toFixed(1)} s for the slow one`);
+  assert.equal(await page.isDisabled('#btn-run'), false, 'the run button of a free tab stays enabled');
+  await page.keyboard.press('Control+W');
+  await page.waitForFunction(() => document.getElementById('pane-messages').textContent.includes('Bảng 1: 1 dòng'), null, { timeout: 60_000 });
+  assert.deepEqual(await visibleRows(), [['slow']]);
+  await page.keyboard.press('Control+W');
+  step('runs a quick query in another tab while a slow one is still going', `quick answered after ${quickSeconds.toFixed(1)} s`);
+
   // ---- Database box of the tab, as in SSMS ----------------------------------------------
   await page.selectOption('#tab-database', 'master');
   await page.waitForFunction(() => document.getElementById('status-connection').textContent.endsWith('/ master'));
