@@ -9,7 +9,9 @@
   FoxPro is not published here.
 - `FoxQueryStudio.config.json` — settings read from the program's folder: FoxPro path, databases to open at start.
 - `FoxQueryStudio-Launcher.exe` — the launcher placed at the top of a kit folder; built from `launcher/Launcher.cs`
-  with the C# compiler of the .NET Framework by `npm run release:assets`. Updates never touch it.
+  with the C# compiler of the .NET Framework by `npm run release:assets`. Updates never touch it. Before starting the
+  program it finishes an update left waiting (`app.new` or `appesourcespp.asar.new` next to the current copy), so a
+  version whose own swap helper failed (0.2.11 and earlier) still comes up as the new one at the next start.
 - `FoxQueryStudio-<version>-app-electron<electron>.asar` — the app code alone (~10 MB). A copy running from the
   unpacked folder on the same Electron updates with this file instead of the whole program; `npm run release:assets` makes it.
 - `northwind-sample.zip` — built from `test/fixtures/northwind` (`npm run fixtures`) with `npm run release:assets`.
