@@ -26,6 +26,8 @@ const PROGRAM_FILE = process.env.PORTABLE_EXECUTABLE_FILE;
 const SYSTEM32 = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32');
 const TAR = join(SYSTEM32, 'tar.exe');
 const POWERSHELL = join(SYSTEM32, 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+/** Windows' console host; `--headless` gives a console application a console without a window. */
+const CONHOST = join(SYSTEM32, 'conhost.exe');
 
 const newCopy = (target: string) => `${target}.new`;
 const oldCopy = (target: string) => `${target}.old`;
@@ -207,8 +209,14 @@ export function setupUpdater(getWindow: () => BrowserWindow | undefined): void {
     writeFileSync(script, `\uFEFF${lines.join('\r\n')}\r\n`);
     // The launcher's own variables must not reach the script's child, or the new copy would think it is this one.
     const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('PORTABLE_EXECUTABLE')));
-    spawn(POWERSHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', script], { detached: true, stdio: 'ignore', windowsHide: true, env }).unref();
+    // The helper must outlive this program (Chromium keeps ordinary children in a job it kills on
+    // exit), so it is started detached; a detached process has no console, which PowerShell cannot
+    // do without, so a headless console host carries it. Nothing shows on screen.
+    const helper = spawn(CONHOST, ['--headless', POWERSHELL, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script], { detached: true, stdio: 'ignore', windowsHide: true, env });
+    helper.on('error', (e) => writeFileSync(`${target}.update.log`, `Không khởi động được tiến trình cập nhật: ${e.message}\n`));
+    helper.unref();
     app.quit();
+
   }
 
   ipcMain.handle('update:getStatus', () => status);
