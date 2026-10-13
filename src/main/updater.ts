@@ -3,7 +3,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { isAllowedUpdateUrl, isNewerVersion, latestReleaseUrl, parseRelease, UPDATE_REPO, type Release, type UpdateStatus } from '../shared/update';
+import { isAllowedUpdateUrl, isNewerVersion, latestReleaseUrl, parseRelease, UPDATE_REPO, type Release, type ReleaseAsset, type UpdateStatus } from '../shared/update';
 
 /**
  * Self-update of the single-file program from GitHub releases. At start (and every few
@@ -21,18 +21,44 @@ const REQUEST_HEADERS = { Accept: 'application/vnd.github+json', 'User-Agent': '
 const FEED_OVERRIDE = process.env.FQS_UPDATE_API;
 /** Set by the portable launcher: the .exe the user started, as opposed to its unpacked copy. */
 const PROGRAM_FILE = process.env.PORTABLE_EXECUTABLE_FILE;
-/**
- * What gets replaced by an update: the single .exe when the portable launcher started us,
- * otherwise the folder the program runs from (the unpacked .zip layout).
- */
-const TARGET = PROGRAM_FILE ?? (app.isPackaged ? dirname(process.execPath) : undefined);
-const TARGET_IS_FOLDER = !PROGRAM_FILE;
 /** Windows ships bsdtar, which reads .zip files. */
 const TAR = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe');
 
 const newCopy = (target: string) => `${target}.new`;
 const oldCopy = (target: string) => `${target}.old`;
-const downloadFile = (target: string) => (TARGET_IS_FOLDER ? `${target}.new.zip` : newCopy(target));
+
+/**
+ * What an update replaces, and with what:
+ * - `exe`: the single portable .exe the launcher started us from;
+ * - `folder`: the folder the program runs from (the unpacked .zip layout);
+ * - `app`: only resources/app.asar in that folder, when the release was built for the same
+ *   Electron — the 10 MB app code instead of the 150 MB program.
+ */
+interface Plan {
+  kind: 'exe' | 'folder' | 'app';
+  target: string;
+  /** Where the download lands; for a folder, the .zip that is then unpacked into target.new. */
+  file: string;
+  /** What to start once the swap is done. */
+  program: string;
+  asset: ReleaseAsset;
+}
+
+const PROGRAM_FOLDER = app.isPackaged && !PROGRAM_FILE ? dirname(process.execPath) : undefined;
+const APP_ASAR = join(process.resourcesPath, 'app.asar');
+
+function planFor(release: Release): Plan {
+  if (PROGRAM_FILE) {
+    if (!release.asset) throw new Error('Bản phát hành không kèm tệp chương trình.');
+    return { kind: 'exe', target: PROGRAM_FILE, file: newCopy(PROGRAM_FILE), program: PROGRAM_FILE, asset: release.asset };
+  }
+  if (!PROGRAM_FOLDER) throw new Error('Bản chạy từ mã nguồn không tự cập nhật.');
+  if (release.app && release.app.electron === process.versions.electron && existsSync(APP_ASAR)) {
+    return { kind: 'app', target: APP_ASAR, file: newCopy(APP_ASAR), program: process.execPath, asset: release.app };
+  }
+  if (!release.folder) throw new Error('Bản phát hành không kèm thư mục chương trình (.zip).');
+  return { kind: 'folder', target: PROGRAM_FOLDER, file: `${PROGRAM_FOLDER}.new.zip`, program: join(PROGRAM_FOLDER, basename(process.execPath)), asset: release.folder };
+}
 
 /** Why this copy cannot update itself, or undefined when it can. */
 function disabledReason(feed: string): string | undefined {
@@ -84,8 +110,12 @@ export function setupUpdater(getWindow: () => BrowserWindow | undefined): void {
   if (reason) status = { ...status, state: 'disabled', message: reason };
   const enabled = !reason;
 
+  let pending: Plan | undefined;
+
   // The copy this one replaced could not be deleted while it was still running.
-  if (TARGET) setTimeout(() => rmSync(oldCopy(TARGET), { recursive: true, force: true }), OLD_COPY_CLEANUP_DELAY_MS);
+  for (const target of [PROGRAM_FILE, PROGRAM_FOLDER, PROGRAM_FOLDER && APP_ASAR]) {
+    if (target) setTimeout(() => rmSync(oldCopy(target), { recursive: true, force: true }), OLD_COPY_CLEANUP_DELAY_MS);
+  }
 
   async function check(): Promise<void> {
     if (!enabled || status.state === 'checking' || status.state === 'downloading' || status.state === 'downloaded') return;
@@ -113,22 +143,23 @@ export function setupUpdater(getWindow: () => BrowserWindow | undefined): void {
 
   async function downloadUpdate(): Promise<void> {
     if (!enabled || status.state !== 'available' || !latest) return;
-    const asset = TARGET_IS_FOLDER ? latest.folder : latest.asset;
+    let plan: Plan | undefined;
     try {
-      if (!TARGET) throw new Error('Bản chạy từ mã nguồn không tự cập nhật.');
-      if (!asset) throw new Error(TARGET_IS_FOLDER ? 'Bản phát hành không kèm thư mục chương trình (.zip).' : 'Bản phát hành không kèm tệp chương trình.');
+      plan = planFor(latest);
+      const { asset } = plan;
       if (!isAllowedUpdateUrl(asset.url)) throw new Error('Địa chỉ tải bản mới phải dùng HTTPS.');
       // The new program replaces this one, so it must be exactly the file that was published.
       if (!asset.sha256) throw new Error('Bản phát hành không kèm mã kiểm tra SHA-256.');
       publish({ state: 'downloading', percent: 0 });
-      const sha256 = await download(asset.url, downloadFile(TARGET), (percent) => publish({ percent }));
+      const sha256 = await download(asset.url, plan.file, (percent) => publish({ percent }));
       if (sha256 !== asset.sha256) throw new Error('Tệp tải về không khớp mã kiểm tra, đã bỏ.');
-      if (TARGET_IS_FOLDER) unpack(downloadFile(TARGET), TARGET);
+      if (plan.kind === 'folder') unpack(plan.file, plan.target);
+      pending = plan;
       publish({ state: 'downloaded', percent: 100 });
     } catch (e) {
-      if (TARGET) {
-        rmSync(downloadFile(TARGET), { force: true });
-        rmSync(newCopy(TARGET), { recursive: true, force: true });
+      if (plan) {
+        rmSync(plan.file, { force: true });
+        rmSync(newCopy(plan.target), { recursive: true, force: true });
       }
       publish({ state: 'error', message: (e as Error).message });
     }
@@ -138,27 +169,42 @@ export function setupUpdater(getWindow: () => BrowserWindow | undefined): void {
    * The launcher keeps the running .exe open, so it cannot be renamed until the program has
    * quit. A small script does the swap once that has happened and starts the new version.
    */
+  /**
+   * The running program keeps its file (or folder) busy, so the swap happens after it has quit.
+   * PowerShell does it, started without a console window; everything it does is built in, so
+   * no child process ever opens a window of its own (a .cmd using ping or timeout would).
+   * Windows PowerShell ships with every Windows 10 and 11.
+   */
   function install(): void {
-    if (!enabled || status.state !== 'downloaded' || !TARGET || !existsSync(newCopy(TARGET))) return;
-    const script = `${TARGET}.update.cmd`;
-    const program = TARGET_IS_FOLDER ? join(TARGET, basename(process.execPath)) : TARGET;
+    if (!enabled || status.state !== 'downloaded' || !pending || !existsSync(newCopy(pending.target))) return;
+    const { target, program } = pending;
+    const script = `${target}.update.ps1`;
+    const q = (text: string) => `'${text.replace(/'/g, "''")}'`;
     const lines = [
-      '@echo off',
-      'set tries=0',
-      ':wait',
-      'set /a tries+=1',
-      `if %tries% gtr ${SWAP_ATTEMPTS} exit`,
-      'ping -n 2 127.0.0.1 >nul',
-      `move /y "${TARGET}" "${oldCopy(TARGET)}" >nul 2>nul || goto wait`,
-      `move /y "${newCopy(TARGET)}" "${TARGET}" >nul`,
-      `start "" "${program}"`,
-      TARGET_IS_FOLDER ? `rmdir /s /q "${oldCopy(TARGET)}" >nul 2>nul` : `del "${oldCopy(TARGET)}" >nul 2>nul`,
-      'del "%~f0"',
+      "$ErrorActionPreference = 'Stop'",
+      `$target = ${q(target)}; $new = ${q(newCopy(target))}; $old = ${q(oldCopy(target))}; $program = ${q(program)}`,
+      '$moved = $false',
+      `for ($attempt = 0; $attempt -lt ${SWAP_ATTEMPTS}; $attempt++) {`,
+      '  Start-Sleep -Seconds 1',
+      '  try {',
+      '    if (Test-Path $old) { Remove-Item $old -Recurse -Force }',
+      '    Move-Item $target $old',
+      '    $moved = $true',
+      '    break',
+      '  } catch { }',
+      '}',
+      'if ($moved) {',
+      '  Move-Item $new $target',
+      '  Start-Process -FilePath $program',
+      '  try { Remove-Item $old -Recurse -Force } catch { }',
+      '}',
+      'Remove-Item $MyInvocation.MyCommand.Path -Force',
     ];
-    writeFileSync(script, `${lines.join('\r\n')}\r\n`);
+    // A BOM makes Windows PowerShell read the file as UTF-8, whatever characters the paths hold.
+    writeFileSync(script, `\uFEFF${lines.join('\r\n')}\r\n`);
     // The launcher's own variables must not reach the script's child, or the new copy would think it is this one.
     const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('PORTABLE_EXECUTABLE')));
-    spawn('cmd.exe', ['/c', script], { detached: true, stdio: 'ignore', windowsHide: true, env }).unref();
+    spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', script], { detached: true, stdio: 'ignore', windowsHide: true, env }).unref();
     app.quit();
   }
 

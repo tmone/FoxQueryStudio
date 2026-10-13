@@ -70,7 +70,13 @@ export interface Release {
   asset?: ReleaseAsset;
   /** The unpacked program folder (.zip), which starts much faster. */
   folder?: ReleaseAsset;
+  /** The app code alone (app.asar, ~10 MB), usable when the installed Electron is the one it was built for. */
+  app?: ReleaseAsset & { electron: string };
 }
+
+/** Name of the app-only asset: the Electron version is part of it, so an update knows whether it fits. */
+export const appAssetName = (version: string, electron: string) => `FoxQueryStudio-${version}-app-electron${electron}.asar`;
+const APP_ASSET = /^FoxQueryStudio-.*-app-electron(\d+\.\d+\.\d+)\.asar$/i;
 
 const VERSION = /^v?(\d+)\.(\d+)\.(\d+)$/;
 
@@ -96,5 +102,11 @@ export function parseRelease(body: unknown): Release | undefined {
     const digest = typeof found.digest === 'string' ? /^sha256:([0-9a-f]{64})$/i.exec(found.digest)?.[1].toLowerCase() : undefined;
     return { name: found.name as string, url: found.browser_download_url as string, sha256: digest };
   };
-  return { version: release.tag_name.replace(/^v/, ''), asset: find(/^FoxQueryStudio-.*\.exe$/i), folder: find(/^FoxQueryStudio-.*\.zip$/i) };
+  const app = find(APP_ASSET);
+  return {
+    version: release.tag_name.replace(/^v/, ''),
+    asset: find(/^FoxQueryStudio-.*\.exe$/i),
+    folder: find(/^FoxQueryStudio-.*\.zip$/i),
+    app: app ? { ...app, electron: APP_ASSET.exec(app.name)![1] } : undefined,
+  };
 }

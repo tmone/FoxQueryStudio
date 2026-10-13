@@ -1,6 +1,6 @@
 {
   "name": "foxquerystudio",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "SSMS-like read-only query tool: write FoxPro-style SELECT, run it on SQL Server",
   "main": "./out/main/index.js",
   "private": true,
@@ -17,7 +17,7 @@
     "e2e:real": "node test/e2e/real-server.mjs",
     "e2e:update": "node test/e2e/update.mjs",
     "release:fake": "node scripts/fake-release.mjs",
-    "release:assets": "powershell -NoProfile -Command \"Compress-Archive -Path test/fixtures/northwind/* -DestinationPath dist/northwind-sample.zip -Force\""
+    "release:assets": "node scripts/release-assets.mjs"
   },
   "dependencies": {
     "mssql": "^12.7.3"

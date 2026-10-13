@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isAllowedUpdateUrl, isNewerVersion, parseRelease, updateActionLabel, type UpdateStatus } from '../src/shared/update';
+import { appAssetName, isAllowedUpdateUrl, isNewerVersion, parseRelease, updateActionLabel, type UpdateStatus } from '../src/shared/update';
 
 describe('update server address', () => {
   it('accepts HTTPS and a plain-HTTP server on this machine only', () => {
@@ -55,12 +55,16 @@ describe('releases on GitHub', () => {
       version: '0.2.0',
       asset: { name: 'FoxQueryStudio-0.2.0.exe', url: 'https://github.com/o/r/releases/download/v0.2.0/FoxQueryStudio-0.2.0.exe', sha256: 'ab'.repeat(32) },
       folder: undefined,
+      app: undefined,
     });
+    const named = appAssetName('0.2.0', '44.5.1');
+    expect(named).toBe('FoxQueryStudio-0.2.0-app-electron44.5.1.asar');
+    expect(parseRelease({ tag_name: 'v0.2.0', assets: [asset({ name: named, browser_download_url: 'https://x/app.asar' })] })?.app).toEqual({ name: named, url: 'https://x/app.asar', sha256: 'ab'.repeat(32), electron: '44.5.1' });
     expect(parseRelease({ tag_name: 'v0.2.0', assets: [asset({ name: 'FoxQueryStudio-0.2.0-win.zip', browser_download_url: 'https://x/f.zip' })] })?.folder).toEqual({ name: 'FoxQueryStudio-0.2.0-win.zip', url: 'https://x/f.zip', sha256: 'ab'.repeat(32) });
   });
 
   it('keeps a release without a program file or checksum, so the app can say what is missing', () => {
-    expect(parseRelease({ tag_name: 'v0.2.0', assets: [] })).toEqual({ version: '0.2.0', asset: undefined, folder: undefined });
+    expect(parseRelease({ tag_name: 'v0.2.0', assets: [] })).toEqual({ version: '0.2.0', asset: undefined, folder: undefined, app: undefined });
     expect(parseRelease({ tag_name: 'v0.2.0', assets: [asset({ digest: 'md5:abc' })] })?.asset?.sha256).toBeUndefined();
     expect(parseRelease({ tag_name: 'v0.2.0', assets: [asset({ digest: undefined })] })?.asset?.sha256).toBeUndefined();
   });

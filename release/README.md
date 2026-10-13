@@ -7,8 +7,10 @@
   (Visual FoxPro 9: `vfp9.exe` and its DLLs, zipped without a top folder) to have it fetched too;
   FoxPro is not published here.
 - `FoxQueryStudio.config.json` — settings read from the program's folder: FoxPro path, databases to open at start.
+- `FoxQueryStudio-<version>-app-electron<electron>.asar` — the app code alone (~10 MB). A copy running from the
+  unpacked folder on the same Electron updates with this file instead of the whole program; `npm run release:assets` makes it.
 - `northwind-sample.zip` — built from `test/fixtures/northwind` (`npm run fixtures`) with `npm run release:assets`.
 
 Publishing a version: bump `version` in `package.json`, `npm run dist`, `npm run release:assets`, then
 
-    gh release create v<version> dist/FoxQueryStudio-<version>.exe dist/FoxQueryStudio-<version>-win.zip dist/northwind-sample.zip release/FoxQueryStudio.config.json release/start.cmd
+    gh release create v<version> dist/FoxQueryStudio-<version>.exe dist/FoxQueryStudio-<version>-win.zip dist/FoxQueryStudio-<version>-app-electron*.asar dist/northwind-sample.zip release/FoxQueryStudio.config.json release/start.cmd

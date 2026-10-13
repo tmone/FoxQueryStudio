@@ -64,6 +64,10 @@ function serve(state) {
       response.writeHead(200, { 'Content-Length': statSync(state.file).size });
       return void createReadStream(state.file).pipe(response);
     }
+    if (path === '/download-asar' && state.asar) {
+      response.writeHead(200, { 'Content-Length': statSync(state.asar).size });
+      return void createReadStream(state.asar).pipe(response);
+    }
     if (path === '/download-zip' && state.zip) {
       response.writeHead(200, { 'Content-Length': statSync(state.zip).size });
       return void createReadStream(state.zip).pipe(response);
@@ -73,11 +77,14 @@ function serve(state) {
   return new Promise((done) => server.listen(PORT, '127.0.0.1', () => done(server)));
 }
 
-const release = (version, digest, zipDigest) => ({
+const ELECTRON = JSON.parse(readFileSync('node_modules/electron/package.json', 'utf8')).version;
+const appName = (version) => `FoxQueryStudio-${version}-app-electron${ELECTRON}.asar`;
+const release = (version, digest, zipDigest, asarDigest) => ({
   tag_name: `v${version}`,
   assets: [
     { name: programName(version), browser_download_url: `http://127.0.0.1:${PORT}/download`, digest },
     ...(zipDigest ? [{ name: folderName(version), browser_download_url: `http://127.0.0.1:${PORT}/download-zip`, digest: zipDigest }] : []),
+    ...(asarDigest ? [{ name: appName(version), browser_download_url: `http://127.0.0.1:${PORT}/download-asar`, digest: asarDigest }] : []),
   ],
 });
 const isRunning = () => spawnSync('tasklist', ['/FI', `IMAGENAME eq ${IMAGE_NAME}`, '/NH'], { encoding: 'utf8' }).stdout.includes(IMAGE_NAME);
@@ -124,7 +131,7 @@ rmSync(RUN_DIR, { recursive: true, force: true });
 mkdirSync(RUN_DIR, { recursive: true });
 copyFileSync(oldProgram, PROGRAM);
 
-const state = { release: undefined, file: undefined, zip: undefined, requests: [] };
+const state = { release: undefined, file: undefined, zip: undefined, asar: undefined, requests: [] };
 const server = await serve(state);
 try {
   // ---- 1. No release published: the check fails quietly, nothing is offered ---------------
@@ -214,6 +221,37 @@ try {
   assert.equal(await page.textContent('#app-version'), `v${NEW_VERSION}`);
   await page.waitForFunction(() => document.getElementById('app-version').title.includes('bản mới nhất'), null, { timeout: 60_000 });
   log(`ok  unpacked layout: runs as ${NEW_VERSION} and reports it is up to date`);
+  await quit(browser);
+
+  // ---- 7. Same Electron: only the app code (app.asar) is downloaded and swapped ------------
+  const newAsar = join(dirname(newProgram), 'win-unpacked', 'resources', 'app.asar');
+  rmSync(APP_DIR, { recursive: true, force: true });
+  mkdirSync(APP_DIR, { recursive: true });
+  execFileSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe'), ['-xf', oldZip, '-C', APP_DIR]);
+  const runtimeBefore = sha256(APP_EXE);
+  state.release = release(NEW_VERSION, `sha256:${sha256(newProgram)}`, `sha256:${sha256(newZip)}`, `sha256:${sha256(newAsar)}`);
+  state.asar = newAsar;
+  state.requests.length = 0;
+  ({ browser, page } = await launch(APP_EXE));
+  assert.equal(await page.textContent('#app-version'), `v${OLD_VERSION}`);
+  await page.waitForSelector('#btn-update:not([hidden])', { timeout: 60_000 });
+  await page.click('#btn-update');
+  await page.waitForFunction((label) => document.getElementById('btn-update-label').textContent === label, `Khởi động lại để cập nhật ${NEW_VERSION}`, { timeout: 300_000 });
+  assert.ok(state.requests.includes('/download-asar') && !state.requests.includes('/download-zip'), 'only the app code was downloaded');
+  assert.equal(sha256(join(APP_DIR, 'resources', 'app.asar.new')), sha256(newAsar));
+  log('ok  app-only update: downloads the 10 MB app.asar instead of the program when Electron is unchanged');
+  await page.click('#btn-update').catch(() => undefined);
+  await browser.close().catch(() => undefined);
+  await waitFor(() => sha256(join(APP_DIR, 'resources', 'app.asar')) === sha256(newAsar), 'the app.asar swap', 60_000);
+  await waitFor(isRunning, 'the new version to start by itself');
+  await sleep(8000);
+  stopApp();
+  await waitFor(() => !isRunning(), 'the restarted program to stop', 30_000);
+  assert.equal(sha256(APP_EXE), runtimeBefore, 'the Electron runtime was left alone');
+  ({ browser, page } = await launch(APP_EXE));
+  assert.equal(await page.textContent('#app-version'), `v${NEW_VERSION}`);
+  await page.waitForFunction(() => document.getElementById('app-version').title.includes('bản mới nhất'), null, { timeout: 60_000 });
+  log(`ok  app-only update: runs as ${NEW_VERSION} on the old runtime and reports it is up to date`);
   await quit(browser);
 
   console.log('\nupdate ok');
