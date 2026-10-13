@@ -1,14 +1,15 @@
 @echo off
 rem FoxQuery Studio - tai ban moi nhat ve thu muc nay roi chay.
 rem Chay lai bat cu luc nao: co ban moi thi tai, khong thi mo ban dang co.
-rem Chuong trinh nam trong thu muc con FoxQueryStudio\ (dang giai nen san, mo trong khoang 1 giay).
+rem Chuong trinh that nam trong thu muc con app\ (giai nen san, mo trong khoang 1 giay);
+rem "FoxQuery Studio.exe" o day la launcher nho mo app\FoxQuery Studio.exe.
 rem Tuy chon: dat bien FQS_VFP_KIT_URL = dia chi noi bo cua vfp9.zip (Visual FoxPro 9) de tai kem.
 setlocal
 cd /d "%~dp0"
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ErrorActionPreference = 'Stop';" ^
   "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;" ^
-  "$repo = 'tmone/FoxQueryStudio'; $dir = 'FoxQueryStudio'; $exe = Join-Path $dir 'FoxQuery Studio.exe'; $stamp = Join-Path $dir 'version.txt';" ^
+  "$repo = 'tmone/FoxQueryStudio'; $dir = 'app'; $exe = Join-Path $dir 'FoxQuery Studio.exe'; $stamp = Join-Path $dir 'version.txt'; $launcher = 'FoxQuery Studio.exe';" ^
   "Write-Host 'Kiem tra ban moi nhat cua FoxQuery Studio...';" ^
   "$release = Invoke-RestMethod -Uri \"https://api.github.com/repos/$repo/releases/latest\" -Headers @{ 'User-Agent' = 'FoxQueryStudio-start' };" ^
   "$zip = $release.assets | Where-Object { $_.name -like 'FoxQueryStudio-*.zip' } | Select-Object -First 1;" ^
@@ -25,6 +26,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "  Rename-Item ($dir + '.new') $dir;" ^
   "  Set-Content -Path $stamp -Value $release.tag_name -Encoding ascii;" ^
   "} else { Write-Host ('Da co ban moi nhat: ' + $release.tag_name) }" ^
+  "$kit = $release.assets | Where-Object { $_.name -eq 'FoxQueryStudio-Launcher.exe' } | Select-Object -First 1;" ^
+  "if ($kit -and -not (Test-Path $launcher)) { Invoke-WebRequest -Uri $kit.browser_download_url -OutFile $launcher -UseBasicParsing }" ^
   "$sample = $release.assets | Where-Object { $_.name -eq 'northwind-sample.zip' } | Select-Object -First 1;" ^
   "if ($sample -and -not (Test-Path 'northwind')) {" ^
   "  Write-Host 'Tai CSDL FoxPro mau (northwind)...';" ^
@@ -37,7 +40,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "  Expand-Archive 'vfp9.zip' -DestinationPath 'vfp9' -Force; Remove-Item 'vfp9.zip';" ^
   "}" ^
   "if (-not (Test-Path 'vfp9\vfp9.exe')) { Write-Host 'Chua co vfp9\vfp9.exe: mo CSDL FoxPro se can chon duong dan Visual FoxPro 9 (menu Ket noi).' }" ^
-  "Start-Process -FilePath (Resolve-Path $exe);"
+  "if (Test-Path $launcher) { Start-Process -FilePath (Resolve-Path $launcher) } else { Start-Process -FilePath (Resolve-Path $exe) }"
 if errorlevel 1 (
   echo.
   echo Khong tai duoc. Kiem tra ket noi mang roi chay lai start.cmd.

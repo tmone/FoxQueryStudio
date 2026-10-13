@@ -14,6 +14,7 @@ const asar = join(dist, 'win-unpacked', 'resources', 'app.asar');
 if (!existsSync(asar)) throw new Error(`${asar} not found; run npm run dist first`);
 copyFileSync(asar, join(dist, appAssetName(version, electron)));
 console.log(join(dist, appAssetName(version, electron)));
+execFileSync(process.execPath, [join('scripts', 'build-launcher.mjs')], { stdio: 'inherit', env: { ...process.env, FQS_DIST_DIR: dist } });
 if (existsSync('test/fixtures/northwind')) {
   execFileSync('powershell', ['-NoProfile', '-Command', `Compress-Archive -Path test/fixtures/northwind/* -DestinationPath ${join(dist, 'northwind-sample.zip')} -Force`], { stdio: 'inherit' });
   console.log(join(dist, 'northwind-sample.zip'));
