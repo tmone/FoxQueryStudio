@@ -19,6 +19,8 @@ const CRLF = '\r\n';
 const STARTUP_TIMEOUT_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 120_000;
 const POLL_MS = 10;
+/** Marks the start of each statement in a request to FoxPro. */
+const FRAME_PREFIX = '#S|';
 /** The session that lists the objects of the database; it comes and goes with each listing. */
 const SCHEMA_SESSION = '__schema';
 const EXIT_TIMEOUT_MS = 5000;
@@ -428,11 +430,14 @@ export function createFoxEngine(locateVfp: () => string | undefined = findVfp): 
       const statements = toRunnable(source);
       const violation = statements.map((s) => readOnlyViolation(s.statement)).find(Boolean);
       if (violation) return failed(violation);
+      // The request is framed by lines starting with "#S|"; such a line inside a statement would
+      // be read by FoxPro as a new, unchecked statement.
+      if (statements.some((s) => s.statement.split('\n').some((line) => line.startsWith(FRAME_PREFIX)))) return failed(`Dòng bắt đầu bằng ${FRAME_PREFIX} không được phép trong truy vấn.`);
 
       let answer: Answer;
       try {
         const worker = await workerFor(sessionId);
-        answer = await request(worker, sessionId, `EXEC|${sessionId}|${maxRows}`, statements.flatMap((s) => [`#S|${s.dumps ? 1 : 0}`, ...s.statement.split('\n')]));
+        answer = await request(worker, sessionId, `EXEC|${sessionId}|${maxRows}`, statements.flatMap((s) => [`${FRAME_PREFIX}${s.dumps ? 1 : 0}`, ...s.statement.split('\n')]));
       } catch (e) {
         return failed((e as Error).message, true);
       }

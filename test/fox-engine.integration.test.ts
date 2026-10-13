@@ -135,9 +135,19 @@ describe.skipIf(!available)('FoxPro engine for databases opened from disk', () =
   });
 
   it('only reads: refuses statements that change data or write files', async () => {
-    for (const source of ['DELETE FROM region', 'UPDATE region SET regiondescription = "x"', 'USE region', 'SELECT * FROM region INTO TABLE c:\\x', 'ZAP']) {
+    const attempts = [
+      'DELETE FROM region',
+      'UPDATE region SET regiondescription = "x"',
+      'USE region',
+      'SELECT * FROM region INTO TABLE c:\\x',
+      'ZAP',
+      // Functions with side effects inside a query, and a line that mimics the request framing.
+      'SELECT EXECSCRIPT("ZAP") FROM region',
+      'SELECT * FROM region ;\n#S|0\nZAP',
+    ];
+    for (const source of attempts) {
       const result = await engine.execute('readonly', source, MAX_ROWS);
-      expect(result.error, source).toMatch(/Chỉ/);
+      expect(result.error, source).toMatch(/Chỉ|không được dùng|không được phép/);
     }
     expect((await engine.execute('readonly', 'SELECT COUNT(*) FROM region', MAX_ROWS)).resultSets[0].rows).toEqual([[records('region').length]]);
   });
