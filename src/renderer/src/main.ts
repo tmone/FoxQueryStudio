@@ -104,6 +104,7 @@ const statusLanguage = el('status-language');
 const languageButtons = [...document.querySelectorAll<HTMLButtonElement>('.language-switch button')];
 const sourceTitle = el('source-title');
 const translationTab = el<HTMLButtonElement>('tab-translation');
+const exportButton = el<HTMLButtonElement>('btn-export');
 const compareTitle = el('compare-title');
 
 const editor = createEditor(el('editor'));
@@ -309,6 +310,7 @@ function renderOutput(): void {
       : []),
   );
 
+  exportButton.hidden = !sets.some((set) => set.rows.length);
   const current = sets[active.activeSet];
   if (current) renderGrid(panes.results, current);
   else panes.results.replaceChildren(placeholder('Chưa có kết quả. Viết lệnh SELECT rồi nhấn F5.'));
@@ -711,6 +713,26 @@ function report(tab: Tab, message: string): void {
   if (tab === active) renderOutput();
 }
 
+/** Writes every result set of the active tab to an .xlsx, one sheet per set. */
+async function exportExcel(): Promise<void> {
+  const tab = active;
+  const sets = tab.result?.resultSets ?? [];
+  if (!sets.some((set) => set.rows.length)) {
+    report(tab, 'Chưa có kết quả để xuất. Chạy truy vấn trước.');
+    return;
+  }
+  try {
+    const name = (tab.filePath ? fileName(tab.filePath).replace(/\.[^.]+$/, '') : tab.title).replace(/[\\/:*?"<>|]/g, ' ');
+    const path = await window.app.exportExcel(
+      sets.map((set, i) => ({ name: sets.length > 1 ? `Bảng ${i + 1}` : name, columns: set.columns, rows: set.rows })),
+      `${name}.xlsx`,
+    );
+    if (path) report(tab, `Đã xuất ${sets.reduce((n, set) => n + set.rows.length, 0)} dòng ra ${path}`);
+  } catch (e) {
+    report(tab, `Không xuất được Excel: ${ipcErrorMessage(e)}`);
+  }
+}
+
 /** Opens a FoxPro database file as a connection of its own, run by FoxPro itself. */
 async function openFoxPro(): Promise<void> {
   if (connecting) return;
@@ -860,6 +882,7 @@ const HANDLERS: Record<AppCommand, () => void> = {
   'local.open': () => void openFoxPro(),
   'query.run': () => void run(),
   'query.switchLanguage': switchLanguage,
+  'query.exportExcel': () => void exportExcel(),
   'view.compare': toggleCompare,
   'view.explorer': () => document.body.classList.toggle('hide-explorer'),
   'view.output': toggleOutput,

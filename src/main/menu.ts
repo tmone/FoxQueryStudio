@@ -1,5 +1,6 @@
 import { app, dialog, ipcMain, Menu, type BrowserWindow, type MenuItemConstructorOptions } from 'electron';
 import { readFile, writeFile } from 'node:fs/promises';
+import { buildWorkbook, type Sheet } from '../shared/xlsx';
 import { COMMANDS, MENUS, type AppCommand, type MenuEntry } from '../shared/commands';
 
 const FILE_FILTERS = [
@@ -49,6 +50,16 @@ export function setupMenu(getWindow: () => BrowserWindow | undefined): void {
     }
     await writeFile(target, content, 'utf8');
     return target;
+  });
+
+  ipcMain.handle('export:xlsx', async (_event, sheets: Sheet[], suggestedName: string) => {
+    const window = getWindow();
+    if (!window) return undefined;
+    const workbook = buildWorkbook(sheets);
+    const { canceled, filePath } = await dialog.showSaveDialog(window, { defaultPath: suggestedName, filters: [{ name: 'Excel', extensions: ['xlsx'] }] });
+    if (canceled || !filePath) return undefined;
+    await writeFile(filePath, workbook);
+    return filePath;
   });
 
   ipcMain.handle('app:about', async () => {

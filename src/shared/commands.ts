@@ -12,6 +12,7 @@ export type AppCommand =
   | 'local.vfpPath'
   | 'query.run'
   | 'query.switchLanguage'
+  | 'query.exportExcel'
   | 'view.explorer'
   | 'view.output'
   | 'view.results'
@@ -40,6 +41,7 @@ export const COMMANDS: Record<AppCommand, CommandInfo> = {
   'local.vfpPath': { label: 'Đường dẫn Visual FoxPro 9…' },
   'query.run': { label: 'Chạy', shortcut: 'F5' },
   'query.switchLanguage': { label: 'Đổi ngôn ngữ FOX-SQL / T-SQL', shortcut: 'Ctrl+Shift+L' },
+  'query.exportExcel': { label: 'Xuất kết quả ra Excel…', shortcut: 'Ctrl+Shift+E' },
   'view.explorer': { label: 'Cây đối tượng', shortcut: 'F8' },
   'view.output': { label: 'Khung kết quả', shortcut: 'Ctrl+R' },
   'view.results': { label: 'Kết quả' },
@@ -58,7 +60,7 @@ export const MENUS: { label: string; items: MenuEntry[] }[] = [
   { label: '&Sửa', items: ['role:undo', 'role:redo', '-', 'role:cut', 'role:copy', 'role:paste', 'role:selectAll'] },
   { label: '&Xem', items: ['view.explorer', 'view.output', '-', 'view.results', 'view.messages', 'view.tsql', 'view.compare', '-', 'role:zoomIn', 'role:zoomOut', 'role:resetZoom', 'role:togglefullscreen'] },
   { label: '&Kết nối', items: ['connection.connect', 'connection.disconnect', '-', 'connection.refresh', '-', 'local.open', 'local.vfpPath'] },
-  { label: 'Truy &vấn', items: ['query.run', '-', 'query.switchLanguage'] },
+  { label: 'Truy &vấn', items: ['query.run', '-', 'query.switchLanguage', '-', 'query.exportExcel'] },
   { label: 'Trợ &giúp', items: ['help.checkUpdates', '-', 'help.about'] },
 ];
 
@@ -71,6 +73,8 @@ export function shortcutOf(event: { key: string; ctrlKey: boolean; shiftKey: boo
 const BY_SHORTCUT = new Map(Object.entries(COMMANDS).filter(([, info]) => info.shortcut).map(([id, info]) => [info.shortcut!, id as AppCommand]));
 
 export const commandForShortcut = (shortcut: string): AppCommand | undefined => BY_SHORTCUT.get(shortcut);
+
+import type { Sheet } from './xlsx';
 
 export interface OpenedFile {
   path: string;
@@ -85,6 +89,8 @@ export interface AppApi {
   /** Writes to `path`, asking for one when it is undefined; returns the path written, or undefined when cancelled. */
   saveFile(path: string | undefined, content: string, suggestedName: string): Promise<string | undefined>;
   /** Where Visual FoxPro 9 is taken from, or undefined when it has not been found. */
+  /** Writes the sheets to an .xlsx the user picks; returns the path, or undefined when cancelled. */
+  exportExcel(sheets: Sheet[], suggestedName: string): Promise<string | undefined>;
   getVfpPath(): Promise<string | undefined>;
   /** Asks for vfp9.exe and remembers the choice; returns the path, or undefined when cancelled. */
   chooseVfpPath(): Promise<string | undefined>;

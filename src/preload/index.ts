@@ -42,6 +42,7 @@ const appApi: AppApi & { about(): Promise<void> } = {
   openFile: () => ipcRenderer.invoke('file:open'),
   saveFile: (path, content, suggestedName) => ipcRenderer.invoke('file:save', path, content, suggestedName),
   about: () => ipcRenderer.invoke('app:about'),
+  exportExcel: (sheets, suggestedName) => ipcRenderer.invoke('export:xlsx', sheets, suggestedName),
   getVfpPath: () => ipcRenderer.invoke('vfp:getPath'),
   chooseVfpPath: () => ipcRenderer.invoke('vfp:choose'),
 };

@@ -662,6 +662,18 @@ body.show-compare .column-title {
   background: var(--surface);
 }
 
+.output-tabs .spacer {
+  flex: 1;
+}
+
+.output-tabs button.export {
+  margin-bottom: 3px;
+}
+
+.output-tabs button.export[hidden] {
+  display: none;
+}
+
 .result-sets {
   display: flex;
   gap: 4px;

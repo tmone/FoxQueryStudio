@@ -57,8 +57,20 @@ export function toRunnable(source: string): RunnableStatement[] {
  * Why a statement may not run in the read-only tool, or undefined when it may.
  * Only queries are let through: nothing that changes a table or writes a file.
  */
+/**
+ * Functions FoxPro would run while evaluating a SELECT that change data, write files, run
+ * code or reach outside the database; a query has no need for them.
+ */
+const SIDE_EFFECT_FUNCTIONS =
+  /\b(EXECSCRIPT|EVALUATE|STRTOFILE|FCREATE|FOPEN|FWRITE|FPUTS|FCHSIZE|FFLUSH|FCLOSE|CREATEOBJECT|CREATEOBJECTEX|NEWOBJECT|GETOBJECT|SYS|TABLEUPDATE|TABLEREVERT|CURSORSETPROP|DBSETPROP|SETFLDSTATE|REQUERY|TEXTMERGE|ADDPROPERTY|COMPOBJ|GETINTERFACE|INDEXSEEK)\s*\(/i;
+/** Macro substitution would let text become any command. */
+const MACRO = /(^|[^&])&[A-Za-z_]/;
+
 export function readOnlyViolation(statement: string): string | undefined {
   if (!/^\s*(SELECT|BROWSE)\b/i.test(statement)) return 'Chỉ chạy được lệnh SELECT (và BROWSE); công cụ này chỉ đọc dữ liệu.';
+  const sideEffect = SIDE_EFFECT_FUNCTIONS.exec(statement);
+  if (sideEffect) return `Hàm ${sideEffect[1].toUpperCase()}() có thể ghi dữ liệu hoặc chạy mã nên không được dùng trong truy vấn.`;
+  if (MACRO.test(statement)) return 'Không dùng macro (&) trong truy vấn.';
   if (/\bINTO\s+(TABLE|DBF|ARRAY)\b/i.test(statement) || /\bTO\s+(FILE|PRINTER)\b/i.test(statement)) return 'Chỉ hỗ trợ INTO CURSOR; không ghi kết quả ra bảng, mảng hay tệp.';
   return undefined;
 }

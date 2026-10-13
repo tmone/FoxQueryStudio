@@ -2,6 +2,7 @@
 // toolbar, keyboard shortcuts, status bar, file open and save.
 // Run `npm run build` first.
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -194,6 +195,22 @@ try {
     text = await run('SELECT TOP 3 ma, nuoc FROM duc ORDER BY ma');
     assert.deepEqual(await visibleRows(), [['ALFKI', 'Germany'], ['BLAUS', 'Germany'], ['DRACD', 'Germany']]);
     ok('runs FoxPro source in FoxPro itself and keeps its cursor between runs');
+
+    // Export the result to Excel, with the save dialog answered by the test.
+    const xlsx = join(workDir, 'duc.xlsx');
+    await app.evaluate(({ dialog }, path) => (dialog.showSaveDialog = async () => ({ canceled: false, filePath: path })), xlsx);
+    assert.equal(await page.isVisible('#btn-export'), true, 'the export button shows once there are rows');
+    await page.click('#btn-export');
+    await page.waitForFunction(() => /Đã xuất 3 dòng ra/.test(document.getElementById('pane-messages').textContent), null, { timeout: 30_000 });
+    assert.ok(existsSync(xlsx), 'the workbook was written');
+    const xlsxDir = join(workDir, 'duc-xlsx');
+    mkdirSync(xlsxDir, { recursive: true });
+    execFileSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe'), ['-xf', xlsx, '-C', xlsxDir]);
+    const sheet = readFileSync(join(xlsxDir, 'xl', 'worksheets', 'sheet1.xml'), 'utf8');
+    assert.match(sheet, /<t>ma<\/t>.*<t>nuoc<\/t>/);
+    assert.match(sheet, /<t>ALFKI<\/t>/);
+    assert.match(sheet, /<t>Germany<\/t>/);
+    ok('exports the result grid to an Excel workbook');
     await page.screenshot({ path: OUT_DIR + '/smoke-local-fox.png' });
 
     // T-SQL in another tab, on the same tables.
