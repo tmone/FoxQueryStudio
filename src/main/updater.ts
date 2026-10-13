@@ -22,7 +22,10 @@ const FEED_OVERRIDE = process.env.FQS_UPDATE_API;
 /** Set by the portable launcher: the .exe the user started, as opposed to its unpacked copy. */
 const PROGRAM_FILE = process.env.PORTABLE_EXECUTABLE_FILE;
 /** Windows ships bsdtar, which reads .zip files. */
-const TAR = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe');
+/** System tools by full path, so nothing earlier in PATH can stand in for them. */
+const SYSTEM32 = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32');
+const TAR = join(SYSTEM32, 'tar.exe');
+const POWERSHELL = join(SYSTEM32, 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 
 const newCopy = (target: string) => `${target}.new`;
 const oldCopy = (target: string) => `${target}.old`;
@@ -204,7 +207,7 @@ export function setupUpdater(getWindow: () => BrowserWindow | undefined): void {
     writeFileSync(script, `\uFEFF${lines.join('\r\n')}\r\n`);
     // The launcher's own variables must not reach the script's child, or the new copy would think it is this one.
     const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('PORTABLE_EXECUTABLE')));
-    spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', script], { detached: true, stdio: 'ignore', windowsHide: true, env }).unref();
+    spawn(POWERSHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', script], { detached: true, stdio: 'ignore', windowsHide: true, env }).unref();
     app.quit();
   }
 
