@@ -1,7 +1,8 @@
 # Files published with each release
 
-- `start.cmd` — put it in an empty folder and run it: downloads the latest `FoxQueryStudio-<version>.exe`,
-  `FoxQueryStudio.config.json` and the Northwind sample next to it, then starts the program. Run it again
+- `start.cmd` — put it in an empty folder and run it: downloads the latest `FoxQueryStudio-<version>-win.zip`
+  (the unpacked program, which opens in about a second; the single .exe unpacks itself at every start and
+  takes ~9 s), unpacks it into `FoxQueryStudio`, fetches the Northwind sample, then starts the program. Run it again
   later to pick up a newer release. Set `FQS_VFP_KIT_URL` to an internal address of `vfp9.zip`
   (Visual FoxPro 9: `vfp9.exe` and its DLLs, zipped without a top folder) to have it fetched too;
   FoxPro is not published here.
@@ -10,4 +11,4 @@
 
 Publishing a version: bump `version` in `package.json`, `npm run dist`, `npm run release:assets`, then
 
-    gh release create v<version> dist/FoxQueryStudio-<version>.exe dist/northwind-sample.zip release/FoxQueryStudio.config.json release/start.cmd
+    gh release create v<version> dist/FoxQueryStudio-<version>.exe dist/FoxQueryStudio-<version>-win.zip dist/northwind-sample.zip release/FoxQueryStudio.config.json release/start.cmd

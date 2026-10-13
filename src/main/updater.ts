@@ -1,7 +1,8 @@
 import { app, ipcMain, type BrowserWindow } from 'electron';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { createWriteStream, existsSync, rmSync, writeFileSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { isAllowedUpdateUrl, isNewerVersion, latestReleaseUrl, parseRelease, UPDATE_REPO, type Release, type UpdateStatus } from '../shared/update';
 
 /**
@@ -20,9 +21,18 @@ const REQUEST_HEADERS = { Accept: 'application/vnd.github+json', 'User-Agent': '
 const FEED_OVERRIDE = process.env.FQS_UPDATE_API;
 /** Set by the portable launcher: the .exe the user started, as opposed to its unpacked copy. */
 const PROGRAM_FILE = process.env.PORTABLE_EXECUTABLE_FILE;
+/**
+ * What gets replaced by an update: the single .exe when the portable launcher started us,
+ * otherwise the folder the program runs from (the unpacked .zip layout).
+ */
+const TARGET = PROGRAM_FILE ?? (app.isPackaged ? dirname(process.execPath) : undefined);
+const TARGET_IS_FOLDER = !PROGRAM_FILE;
+/** Windows ships bsdtar, which reads .zip files. */
+const TAR = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe');
 
-const newCopy = (program: string) => `${program}.new`;
-const oldCopy = (program: string) => `${program}.old`;
+const newCopy = (target: string) => `${target}.new`;
+const oldCopy = (target: string) => `${target}.old`;
+const downloadFile = (target: string) => (TARGET_IS_FOLDER ? `${target}.new.zip` : newCopy(target));
 
 /** Why this copy cannot update itself, or undefined when it can. */
 function disabledReason(feed: string): string | undefined {
@@ -75,7 +85,7 @@ export function setupUpdater(getWindow: () => BrowserWindow | undefined): void {
   const enabled = !reason;
 
   // The copy this one replaced could not be deleted while it was still running.
-  if (PROGRAM_FILE) setTimeout(() => rmSync(oldCopy(PROGRAM_FILE), { force: true }), OLD_COPY_CLEANUP_DELAY_MS);
+  if (TARGET) setTimeout(() => rmSync(oldCopy(TARGET), { recursive: true, force: true }), OLD_COPY_CLEANUP_DELAY_MS);
 
   async function check(): Promise<void> {
     if (!enabled || status.state === 'checking' || status.state === 'downloading' || status.state === 'downloaded') return;
@@ -89,21 +99,37 @@ export function setupUpdater(getWindow: () => BrowserWindow | undefined): void {
     }
   }
 
+  /** Unpacks the downloaded folder next to the running one; the swap script moves it into place later. */
+  function unpack(zip: string, target: string): void {
+    rmSync(newCopy(target), { recursive: true, force: true });
+    mkdirSync(newCopy(target), { recursive: true });
+    const result = spawnSync(TAR, ['-xf', zip, '-C', newCopy(target)], { windowsHide: true });
+    rmSync(zip, { force: true });
+    if (result.status !== 0 || !existsSync(join(newCopy(target), basename(process.execPath)))) {
+      rmSync(newCopy(target), { recursive: true, force: true });
+      throw new Error('Không giải nén được bản mới.');
+    }
+  }
+
   async function downloadUpdate(): Promise<void> {
     if (!enabled || status.state !== 'available' || !latest) return;
-    const asset = latest.asset;
+    const asset = TARGET_IS_FOLDER ? latest.folder : latest.asset;
     try {
-      if (!PROGRAM_FILE) throw new Error('Chỉ bản chạy từ tệp .exe mới tự thay được chính nó.');
-      if (!asset) throw new Error('Bản phát hành không kèm tệp chương trình.');
+      if (!TARGET) throw new Error('Bản chạy từ mã nguồn không tự cập nhật.');
+      if (!asset) throw new Error(TARGET_IS_FOLDER ? 'Bản phát hành không kèm thư mục chương trình (.zip).' : 'Bản phát hành không kèm tệp chương trình.');
       if (!isAllowedUpdateUrl(asset.url)) throw new Error('Địa chỉ tải bản mới phải dùng HTTPS.');
       // The new program replaces this one, so it must be exactly the file that was published.
       if (!asset.sha256) throw new Error('Bản phát hành không kèm mã kiểm tra SHA-256.');
       publish({ state: 'downloading', percent: 0 });
-      const sha256 = await download(asset.url, newCopy(PROGRAM_FILE), (percent) => publish({ percent }));
+      const sha256 = await download(asset.url, downloadFile(TARGET), (percent) => publish({ percent }));
       if (sha256 !== asset.sha256) throw new Error('Tệp tải về không khớp mã kiểm tra, đã bỏ.');
+      if (TARGET_IS_FOLDER) unpack(downloadFile(TARGET), TARGET);
       publish({ state: 'downloaded', percent: 100 });
     } catch (e) {
-      if (PROGRAM_FILE) rmSync(newCopy(PROGRAM_FILE), { force: true });
+      if (TARGET) {
+        rmSync(downloadFile(TARGET), { force: true });
+        rmSync(newCopy(TARGET), { recursive: true, force: true });
+      }
       publish({ state: 'error', message: (e as Error).message });
     }
   }
@@ -113,8 +139,9 @@ export function setupUpdater(getWindow: () => BrowserWindow | undefined): void {
    * quit. A small script does the swap once that has happened and starts the new version.
    */
   function install(): void {
-    if (!enabled || status.state !== 'downloaded' || !PROGRAM_FILE || !existsSync(newCopy(PROGRAM_FILE))) return;
-    const script = `${PROGRAM_FILE}.update.cmd`;
+    if (!enabled || status.state !== 'downloaded' || !TARGET || !existsSync(newCopy(TARGET))) return;
+    const script = `${TARGET}.update.cmd`;
+    const program = TARGET_IS_FOLDER ? join(TARGET, basename(process.execPath)) : TARGET;
     const lines = [
       '@echo off',
       'set tries=0',
@@ -122,10 +149,10 @@ export function setupUpdater(getWindow: () => BrowserWindow | undefined): void {
       'set /a tries+=1',
       `if %tries% gtr ${SWAP_ATTEMPTS} exit`,
       'ping -n 2 127.0.0.1 >nul',
-      `move /y "${PROGRAM_FILE}" "${oldCopy(PROGRAM_FILE)}" >nul 2>nul || goto wait`,
-      `move /y "${newCopy(PROGRAM_FILE)}" "${PROGRAM_FILE}" >nul`,
-      `start "" "${PROGRAM_FILE}"`,
-      `del "${oldCopy(PROGRAM_FILE)}" >nul 2>nul`,
+      `move /y "${TARGET}" "${oldCopy(TARGET)}" >nul 2>nul || goto wait`,
+      `move /y "${newCopy(TARGET)}" "${TARGET}" >nul`,
+      `start "" "${program}"`,
+      TARGET_IS_FOLDER ? `rmdir /s /q "${oldCopy(TARGET)}" >nul 2>nul` : `del "${oldCopy(TARGET)}" >nul 2>nul`,
       'del "%~f0"',
     ];
     writeFileSync(script, `${lines.join('\r\n')}\r\n`);

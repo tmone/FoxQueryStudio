@@ -16,12 +16,20 @@ export interface SideConfig {
 const FILE = 'FoxQueryStudio.config.json';
 const VFP_BESIDE = join('vfp9', 'vfp9.exe');
 
-/** The folder the user started the program from: the portable .exe's folder, or the project in development. */
-export function programFolder(): string {
-  return process.env.PORTABLE_EXECUTABLE_DIR ?? (process.env.PORTABLE_EXECUTABLE_FILE ? dirname(process.env.PORTABLE_EXECUTABLE_FILE) : process.cwd());
+/**
+ * The folder the settings live in: the portable .exe's folder; for the unpacked layout the
+ * program folder itself or its parent (where start.cmd keeps them); the project in development.
+ */
+export function programFolder(packaged: boolean): string {
+  if (process.env.PORTABLE_EXECUTABLE_DIR) return process.env.PORTABLE_EXECUTABLE_DIR;
+  if (process.env.PORTABLE_EXECUTABLE_FILE) return dirname(process.env.PORTABLE_EXECUTABLE_FILE);
+  if (!packaged) return process.cwd();
+  const own = dirname(process.execPath);
+  const hasSettings = (folder: string) => existsSync(join(folder, FILE)) || existsSync(join(folder, VFP_BESIDE));
+  return hasSettings(own) ? own : hasSettings(dirname(own)) ? dirname(own) : own;
 }
 
-export function readSideConfig(folder = programFolder()): SideConfig {
+export function readSideConfig(folder: string): SideConfig {
   const at = (p: string) => (isAbsolute(p) ? p : resolve(folder, p));
   let raw: { vfpPath?: unknown; openOnStart?: unknown } = {};
   const file = join(folder, FILE);

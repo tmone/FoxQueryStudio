@@ -6,11 +6,11 @@ import { createDatabase, tediousConfig } from './db';
 import { createFoxEngine } from './fox-engine';
 import { locateVfp, setupConnectionIpc } from './local-db';
 import { setupMenu } from './menu';
-import { readSideConfig } from './side-config';
+import { programFolder, readSideConfig } from './side-config';
 import { setupUpdater } from './updater';
 
 /** Settings placed next to the program by whoever handed it out. */
-const sideConfig = readSideConfig();
+const sideConfig = readSideConfig(programFolder(app.isPackaged));
 /** FoxPro next to the program, or inside it, is looked for before an installed one. */
 const SHIPPED_VFP = [...(sideConfig.vfpPath ? [sideConfig.vfpPath] : []), join(process.resourcesPath, 'vfp', 'vfp9.exe')];
 const connections = createConnections(

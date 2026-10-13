@@ -54,11 +54,13 @@ describe('releases on GitHub', () => {
     expect(parseRelease({ tag_name: 'v0.2.0', assets: [{ name: 'notes.txt', browser_download_url: 'https://x/notes.txt' }, asset()] })).toEqual({
       version: '0.2.0',
       asset: { name: 'FoxQueryStudio-0.2.0.exe', url: 'https://github.com/o/r/releases/download/v0.2.0/FoxQueryStudio-0.2.0.exe', sha256: 'ab'.repeat(32) },
+      folder: undefined,
     });
+    expect(parseRelease({ tag_name: 'v0.2.0', assets: [asset({ name: 'FoxQueryStudio-0.2.0-win.zip', browser_download_url: 'https://x/f.zip' })] })?.folder).toEqual({ name: 'FoxQueryStudio-0.2.0-win.zip', url: 'https://x/f.zip', sha256: 'ab'.repeat(32) });
   });
 
   it('keeps a release without a program file or checksum, so the app can say what is missing', () => {
-    expect(parseRelease({ tag_name: 'v0.2.0', assets: [] })).toEqual({ version: '0.2.0', asset: undefined });
+    expect(parseRelease({ tag_name: 'v0.2.0', assets: [] })).toEqual({ version: '0.2.0', asset: undefined, folder: undefined });
     expect(parseRelease({ tag_name: 'v0.2.0', assets: [asset({ digest: 'md5:abc' })] })?.asset?.sha256).toBeUndefined();
     expect(parseRelease({ tag_name: 'v0.2.0', assets: [asset({ digest: undefined })] })?.asset?.sha256).toBeUndefined();
   });

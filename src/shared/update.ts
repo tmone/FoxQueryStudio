@@ -66,7 +66,10 @@ export interface ReleaseAsset {
 
 export interface Release {
   version: string;
+  /** The single-file program (.exe). */
   asset?: ReleaseAsset;
+  /** The unpacked program folder (.zip), which starts much faster. */
+  folder?: ReleaseAsset;
 }
 
 const VERSION = /^v?(\d+)\.(\d+)\.(\d+)$/;
@@ -87,10 +90,11 @@ export function parseRelease(body: unknown): Release | undefined {
   const release = body as { tag_name?: unknown; assets?: unknown };
   if (typeof release?.tag_name !== 'string' || !VERSION.test(release.tag_name)) return undefined;
   const assets = Array.isArray(release.assets) ? (release.assets as { name?: unknown; browser_download_url?: unknown; digest?: unknown }[]) : [];
-  const exe = assets.find((a) => typeof a.name === 'string' && /\.exe$/i.test(a.name) && typeof a.browser_download_url === 'string');
-  const digest = typeof exe?.digest === 'string' ? /^sha256:([0-9a-f]{64})$/i.exec(exe.digest)?.[1].toLowerCase() : undefined;
-  return {
-    version: release.tag_name.replace(/^v/, ''),
-    asset: exe ? { name: exe.name as string, url: exe.browser_download_url as string, sha256: digest } : undefined,
+  const find = (pattern: RegExp): ReleaseAsset | undefined => {
+    const found = assets.find((a) => typeof a.name === 'string' && pattern.test(a.name) && typeof a.browser_download_url === 'string');
+    if (!found) return undefined;
+    const digest = typeof found.digest === 'string' ? /^sha256:([0-9a-f]{64})$/i.exec(found.digest)?.[1].toLowerCase() : undefined;
+    return { name: found.name as string, url: found.browser_download_url as string, sha256: digest };
   };
+  return { version: release.tag_name.replace(/^v/, ''), asset: find(/^FoxQueryStudio-.*\.exe$/i), folder: find(/^FoxQueryStudio-.*\.zip$/i) };
 }

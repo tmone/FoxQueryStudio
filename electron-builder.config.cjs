@@ -14,10 +14,13 @@ module.exports = {
   appId: 'com.surehcs.foxquerystudio',
   productName: 'FoxQuery Studio',
   directories: { output: process.env.FQS_DIST_DIR || 'dist' },
-  files: ['out/**', 'build/icon.png', 'package.json'],
+  // Everything the program needs is in out/: the main script bundles its dependencies.
+  files: ['out/**', 'build/icon.png', 'package.json', '!node_modules/**'],
   extraResources: existsSync('build/vfp') ? [{ from: 'build/vfp', to: 'vfp' }] : [],
   win: {
-    target: [{ target: 'portable', arch: ['x64'] }],
+    // The .zip is the unpacked folder: it opens in about a second, where the single .exe unpacks itself first.
+    target: [{ target: 'portable', arch: ['x64'] }, { target: 'zip', arch: ['x64'] }],
+    artifactName: 'FoxQueryStudio-${version}-${os}.${ext}',
     // Regenerate with scripts/make-icon.ps1 when the artwork changes.
     icon: 'build/icon.ico',
     // The program is not code-signed yet; the icon and version details are still written into the .exe.

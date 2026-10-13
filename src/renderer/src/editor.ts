@@ -1,4 +1,7 @@
-import * as monaco from 'monaco-editor';
+// The editor core plus SQL only: the full package carries every language and its workers (20+ MB).
+import * as monaco from 'monaco-editor/editor/editor.api';
+import 'monaco-editor/features/register.all';
+import 'monaco-editor/languages/definitions/sql/register';
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker';
 import { FOXPRO_FUNCTIONS } from '../../converter';
 import type { SchemaTable } from '../../shared/types';
