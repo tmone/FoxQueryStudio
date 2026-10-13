@@ -183,6 +183,11 @@ PROCEDURE fqs_dump(tcAlias)
     lnRows = lnRows + 1
     lcLine = "#ROW"
     FOR lnI = 1 TO FCOUNT()
+      * A General (OLE) field cannot be read as a value; it is reported as binary.
+      IF TYPE(tcAlias + "." + FIELD(lnI)) = "G"
+        lcLine = lcLine + "|?:G"
+        LOOP
+      ENDIF
       luV = EVALUATE(tcAlias + "." + FIELD(lnI))
       lcT = VARTYPE(luV)
       DO CASE

@@ -118,6 +118,11 @@ describe.skipIf(!available)('FoxPro engine for databases opened from disk', () =
     expect(await rows(session('values'), 'SELECT .T. AS co, {^2026-02-03 04:05:06} AS gio, 12.5 AS so, "Königlich" AS ten FROM region WHERE regionid = 1')).toEqual([[true, '2026-02-03 04:05:06', 12.5, 'Königlich']]);
   });
 
+  it('shows a General (OLE) field as binary instead of failing the row', async () => {
+    const outcome = await run(session('general'), 'SELECT TOP 2 categoryid, picture FROM categories ORDER BY categoryid');
+    expect(outcome.result!.resultSets[0].rows).toEqual([[1, '(nhị phân)'], [2, '(nhị phân)']]);
+  });
+
   it('cuts results at the row limit and returns several result sets', async () => {
     const cut = await engine.execute('limits', 'SELECT * FROM orderdetails', 10);
     expect(cut.error).toBeUndefined();
