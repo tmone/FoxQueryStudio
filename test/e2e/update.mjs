@@ -192,7 +192,7 @@ try {
   rmSync(APP_DIR, { recursive: true, force: true });
   mkdirSync(APP_DIR, { recursive: true });
   // Windows' own tar reads .zip; the GNU tar of Git takes "C:" for a host name.
-  execFileSync(join(process.env.SystemRoot ?? 'C:\Windows', 'System32', 'tar.exe'), ['-xf', oldZip, '-C', APP_DIR]);
+  execFileSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe'), ['-xf', oldZip, '-C', APP_DIR]);
   state.release = release(NEW_VERSION, `sha256:${sha256(newProgram)}`, `sha256:${sha256(newZip)}`);
   state.zip = newZip;
   ({ browser, page } = await launch(APP_EXE));

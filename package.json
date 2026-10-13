@@ -16,7 +16,8 @@
     "e2e": "node test/e2e/smoke.mjs",
     "e2e:real": "node test/e2e/real-server.mjs",
     "e2e:update": "node test/e2e/update.mjs",
-    "release:fake": "node scripts/fake-release.mjs"
+    "release:fake": "node scripts/fake-release.mjs",
+    "release:assets": "powershell -NoProfile -Command \"Compress-Archive -Path test/fixtures/northwind/* -DestinationPath dist/northwind-sample.zip -Force\""
   },
   "dependencies": {
     "mssql": "^12.7.3"
