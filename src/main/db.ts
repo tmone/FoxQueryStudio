@@ -126,7 +126,18 @@ export function createDatabase(driver: SqlDriver, buildConfig: (profile: Connect
     async connect(p) {
       await disconnect();
       const pool = await openPool(p);
-      await pool.close();
+      try {
+        // With both an instance name and a port, the port decides where the connection went;
+        // it must be the instance the user named, not whichever one listens there.
+        const { instance, port } = parseServerName(p.server);
+        if (instance && port) {
+          const { recordset } = await pool.request().query('SELECT @@SERVICENAME AS name');
+          const actual = String(recordset[0]?.name ?? '');
+          if (actual.toLowerCase() !== instance.toLowerCase()) throw new Error(`Cổng ${port} là instance ${actual}, không phải ${instance}. Sửa tên instance hoặc cổng.`);
+        }
+      } finally {
+        await pool.close();
+      }
       profile = p;
     },
 
