@@ -70,8 +70,7 @@ try {
 
   // ---- Connect -------------------------------------------------------------------------
   await page.click('#btn-connect');
-  await page.fill('[name=server]', SERVER);
-  await page.fill('[name=port]', PORT);
+  await page.fill('[name=server]', `${SERVER},${PORT}`);
   await page.fill('[name=database]', DATABASE);
   await page.fill('[name=user]', USER);
   await page.fill('[name=password]', PASSWORD);
@@ -92,10 +91,15 @@ try {
   const groups = await page.$$eval('#explorer-tree .group > summary', (nodes) => nodes.map((n) => n.textContent));
   assert.deepEqual(groups, [`Bảng (${tableCount})`, `View (${viewCount})`]);
   // Nodes are nested like the SSMS object explorer: server, database, then folders.
-  assert.equal(await page.textContent('#explorer-tree > .server > summary'), `${SERVER} (${USER})`);
-  assert.equal(await page.textContent('#explorer-tree > .server > .database > summary'), DATABASE);
-  assert.equal(await page.locator('#explorer-tree > .server > .database > .group').count(), 2);
-  assert.equal(await page.textContent('#explorer-tree .database > .cursors > summary'), 'Cursor của tab (0)');
+  assert.equal(await page.textContent('#explorer-tree > .server > summary'), `${SERVER},${PORT} (${USER})`);
+  // Every database of the server is listed; the one the profile named is open and current, the others load on demand.
+  assert.ok((await page.locator('#explorer-tree > .server > .database').count()) > 1, 'all databases are listed');
+  assert.equal(await page.textContent('#explorer-tree > .server > .database.current > summary'), DATABASE);
+  assert.equal(await page.locator('#explorer-tree > .server > .database.current > .group').count(), 2);
+  assert.equal(await page.textContent('#explorer-tree .database.current > .cursors > summary'), 'Cursor của tab (0)');
+  // The toolbar box shows the tab's database, as in SSMS.
+  assert.equal(await page.isVisible('#tab-database'), true);
+  assert.equal(await page.inputValue('#tab-database'), DATABASE);
   assert.equal(await page.textContent('#status-state'), '1 kết nối đang mở');
   assert.equal(await page.isEnabled('#btn-disconnect'), true);
 
@@ -229,13 +233,33 @@ try {
   await page.click('.output-tabs > button[data-pane=results]');
   await page.screenshot({ path: `${OUT_DIR}/real-final.png` });
 
+  // ---- Database box of the tab, as in SSMS ----------------------------------------------
+  await page.selectOption('#tab-database', 'master');
+  await page.waitForFunction(() => document.getElementById('status-connection').textContent.endsWith('/ master'));
+  text = await run('SELECT DB_NAME() AS db');
+  assert.deepEqual(await visibleRows(), [['master']]);
+  assert.doesNotMatch(text, /Changed database context/);
+  await page.selectOption('#tab-database', DATABASE);
+  text = await run('SELECT DB_NAME() AS db');
+  assert.deepEqual(await visibleRows(), [[DATABASE]]);
+  // Opening another database's node loads its objects on demand.
+  await page.click('#explorer-tree > .server > .database:not(.current) > summary');
+  await page.waitForFunction(() => document.querySelectorAll('#explorer-tree > .server > .database.current').length === 1);
+  step('switches the tab between databases and lists the objects of any database on demand');
+
   // ---- Refresh and disconnect ------------------------------------------------------------
   await page.keyboard.press('Control+Shift+R');
-  await page.waitForFunction((label) => document.querySelector('#explorer-tree .group > summary')?.textContent === label, `Bảng (${tableCount})`, { timeout: 60_000 });
+  // Other databases may be open too, so the check reads the group under the tab's own database node.
+  await page.waitForFunction(
+    ([name, label]) => [...document.querySelectorAll('#explorer-tree .database')].find((d) => d.querySelector(':scope > summary')?.textContent === name)?.querySelector(':scope > .group > summary')?.textContent === label,
+    [DATABASE, `Bảng (${tableCount})`],
+    { timeout: 60_000 },
+  );
   await page.click('#btn-disconnect');
   await page.waitForFunction(() => document.getElementById('status-state').textContent === 'Chưa có kết nối');
   assert.equal(await page.isDisabled('#btn-run'), true);
-  assert.match(await page.textContent('#explorer-tree'), /Kết nối để xem/);
+  // The connection stays listed, closed, like a registered server in SSMS.
+  assert.match(await page.textContent('#explorer-tree .server.offline > summary'), new RegExp(USER));
   assert.equal(await page.textContent('#status-cursor'), '');
   step('reloads the object list and disconnects');
 

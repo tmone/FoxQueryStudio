@@ -276,9 +276,7 @@ try {
   await page.click('#btn-connect');
   assert.equal(await page.isVisible('#connect-dialog'), true);
   // An unreachable server must surface an error instead of hanging the dialog.
-  await page.fill('[name=server]', '127.0.0.1');
-  await page.fill('[name=port]', '1');
-  await page.fill('[name=database]', 'x');
+  await page.fill('[name=server]', '127.0.0.1,1');
   await page.fill('[name=user]', 'x');
   await page.fill('[name=password]', 'x');
   await page.click('#connect-submit');

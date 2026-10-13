@@ -59,8 +59,9 @@ function createWindow(): void {
 
 function registerIpc(): void {
   ipcMain.handle('db:disconnect', (_e, id: string) => connections.disconnect(id));
-  ipcMain.handle('db:schema', (_e, id: string) => connections.loadSchema(id));
-  ipcMain.handle('db:execute', (_e, id: string, sessionId: string, sql: string, maxRows: number) => connections.execute(id, sessionId, sql, maxRows));
+  ipcMain.handle('db:databases', (_e, id: string) => connections.listDatabases(id));
+  ipcMain.handle('db:schema', (_e, id: string, database: string) => connections.loadSchema(id, database));
+  ipcMain.handle('db:execute', (_e, id: string, sessionId: string, sql: string, maxRows: number, database?: string) => connections.execute(id, sessionId, sql, maxRows, database));
   ipcMain.handle('db:closeSession', (_e, id: string, sessionId: string) => connections.closeSession(id, sessionId));
 }
 

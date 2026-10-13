@@ -9,8 +9,9 @@ const api: DbApi = {
   connectSaved: (id, password) => ipcRenderer.invoke('db:connectSaved', id, password),
   openFoxPro: () => ipcRenderer.invoke('local:open'),
   disconnect: (id) => ipcRenderer.invoke('db:disconnect', id),
-  loadSchema: (id) => ipcRenderer.invoke('db:schema', id),
-  execute: (id, sessionId, sql, maxRows) => ipcRenderer.invoke('db:execute', id, sessionId, sql, maxRows),
+  listDatabases: (id) => ipcRenderer.invoke('db:databases', id),
+  loadSchema: (id, database) => ipcRenderer.invoke('db:schema', id, database),
+  execute: (id, sessionId, sql, maxRows, database) => ipcRenderer.invoke('db:execute', id, sessionId, sql, maxRows, database),
   closeSession: (id, sessionId) => ipcRenderer.invoke('db:closeSession', id, sessionId),
 };
 

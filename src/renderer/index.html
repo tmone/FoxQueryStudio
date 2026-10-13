@@ -19,6 +19,7 @@
       <button id="btn-disconnect" type="button" class="tool" data-command="connection.disconnect" title="Ngắt kết nối" aria-label="Ngắt kết nối" disabled><svg viewBox="0 0 16 16" aria-hidden="true"><ellipse cx="8" cy="4" rx="5" ry="2"/><path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4"/><path d="M2 14.5l12-13"/></svg></button>
       <button id="btn-local" type="button" class="tool" data-command="local.open" title="Mở CSDL FoxPro: tệp .dbc hoặc .dbf (Ctrl+Shift+O)" aria-label="Mở CSDL FoxPro"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 12.5v-9h4l1.5 1.5h7.5v7.5z"/><ellipse cx="10.5" cy="8.5" rx="2.5" ry="1"/><path d="M8 8.5v2.5c0 .6 1.1 1 2.5 1s2.5-.4 2.5-1V8.5"/></svg></button>
       <span class="divider"></span>
+      <select id="tab-database" class="tool-select" title="Cơ sở dữ liệu của tab (như SSMS)" aria-label="Cơ sở dữ liệu của tab" hidden></select>
       <button id="btn-run" type="button" class="tool labelled run" data-command="query.run" title="Chạy (F5)" disabled><svg viewBox="0 0 16 16" aria-hidden="true"><path class="fill" d="M4 2.5l9 5.5-9 5.5z"/></svg><span>Chạy</span></button>
       <span class="divider"></span>
       <button id="btn-toggle-compare" type="button" class="tool" data-command="view.compare" title="So sánh FOX-SQL và T-SQL (Ctrl+Shift+D)" aria-label="So sánh FOX-SQL và T-SQL" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 2.5h5.5v11h-5.5zM9 2.5h5.5v11h-5.5z"/><path d="M3 5.5h2.5M3 8h2.5M10.5 5.5h2.5M10.5 8h2.5M10.5 10.5h2.5"/></svg></button>
@@ -89,9 +90,8 @@
       <form id="connect-form" method="dialog">
         <h2>Kết nối SQL Server</h2>
         <label>Kết nối đã lưu <select name="saved" id="saved-connections"><option value="">(mới)</option></select></label>
-        <label>Máy chủ <input name="server" required placeholder="host hoặc host\instance" /></label>
-        <label>Cổng <input name="port" type="number" min="1" max="65535" placeholder="1433" /></label>
-        <label>Cơ sở dữ liệu <input name="database" required /></label>
+        <label>Máy chủ <input name="server" required placeholder="host, host\instance hoặc host\instance,1433" /></label>
+        <label>Cơ sở dữ liệu <input name="database" placeholder="(để trống: hiện tất cả, chọn trên cây)" /></label>
         <label>Tài khoản <input name="user" required autocomplete="username" /></label>
         <label>Mật khẩu <input name="password" type="password" required autocomplete="current-password" /></label>
         <label class="check"><input name="encrypt" type="checkbox" checked /> Mã hóa kết nối</label>

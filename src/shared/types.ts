@@ -1,7 +1,8 @@
 export interface ConnectionProfile {
+  /** As SSMS writes it: host, host\instance, host,port or host\instance,port. */
   server: string;
-  port?: number;
-  database: string;
+  /** Database to start in; empty means the login's default, and every database is listed anyway. */
+  database?: string;
   user: string;
   password: string;
   encrypt: boolean;
@@ -66,15 +67,19 @@ export interface DbApi {
   /** Asks for a .dbc or .dbf file and opens that database in FoxPro; undefined when the dialog is cancelled. */
   openFoxPro(): Promise<ConnectionInfo | undefined>;
   disconnect(connectionId: string): Promise<void>;
-  loadSchema(connectionId: string): Promise<SchemaTable[]>;
-  execute(connectionId: string, sessionId: string, sql: string, maxRows: number): Promise<ExecuteResult>;
+  /** Databases the login can open on the connection; a FoxPro connection has exactly one. */
+  listDatabases(connectionId: string): Promise<string[]>;
+  loadSchema(connectionId: string, database: string): Promise<SchemaTable[]>;
+  /** `database` is the one the batch runs in; it is switched to at the start of the batch. */
+  execute(connectionId: string, sessionId: string, sql: string, maxRows: number, database?: string): Promise<ExecuteResult>;
   closeSession(connectionId: string, sessionId: string): Promise<void>;
 }
 
 /** One connection's worth of the database service: what createDatabase and createFoxEngine implement. */
 export interface DbBackend {
   disconnect(): Promise<void>;
-  loadSchema(): Promise<SchemaTable[]>;
-  execute(sessionId: string, sql: string, maxRows: number): Promise<ExecuteResult>;
+  listDatabases(): Promise<string[]>;
+  loadSchema(database?: string): Promise<SchemaTable[]>;
+  execute(sessionId: string, sql: string, maxRows: number, database?: string): Promise<ExecuteResult>;
   closeSession(sessionId: string): Promise<void>;
 }

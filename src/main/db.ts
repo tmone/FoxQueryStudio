@@ -1,4 +1,5 @@
 import type sqlTypes from 'mssql';
+import { parseServerName } from '../shared/server-name';
 import type { CellValue, ConnectionProfile, DbBackend, ExecuteResult, ResultSet, SchemaTable } from '../shared/types';
 
 /** The parts of the `mssql` package used here; `mssql/msnodesqlv8` offers the same ones. */
@@ -31,22 +32,33 @@ export function schemaFromRows(rows: Record<string, unknown>[]): SchemaTable[] {
   return [...tables.values()];
 }
 
+const DATABASES_QUERY = 'SELECT name FROM sys.databases WHERE state = 0 AND HAS_DBACCESS(name) = 1 ORDER BY name';
+/** The message the server sends for USE; it is not news to the user. */
+const CONTEXT_CHANGED = /Changed database context to /;
+
+const quoteName = (name: string) => `[${name.replace(/]/g, ']]')}]`;
+/** Puts the batch in the database the tab works in; the session keeps that context afterwards. */
+const inDatabase = (sql: string, database?: string) => (database ? `USE ${quoteName(database)};\n${sql}` : sql);
+
 const REQUEST_TIMEOUT_MS = 120_000;
 /** How long to wait for the driver to finish a request after it has reported an error. */
 const ERROR_GRACE_MS = 1500;
 
 /** Connection settings for the default driver (tedious, TCP). */
 export function tediousConfig(p: ConnectionProfile): sqlTypes.config {
+  const { host, instance, port } = parseServerName(p.server);
   return {
-    server: p.server,
-    port: p.port,
-    database: p.database,
+    // A port names the endpoint outright; without one, a named instance is looked up through SQL Browser.
+    server: host,
+    port,
+    database: p.database || undefined,
     user: p.user,
     password: p.password,
     requestTimeout: REQUEST_TIMEOUT_MS,
     // min 1 keeps the connection (and its temp tables) alive while the tab is open.
     pool: { min: 1, max: 1 },
     options: {
+      instanceName: port ? undefined : instance,
       encrypt: p.encrypt,
       trustServerCertificate: p.trustServerCertificate,
       appName: 'FoxQueryStudio',
@@ -126,17 +138,27 @@ export function createDatabase(driver: SqlDriver, buildConfig: (profile: Connect
       await pool?.close();
     },
 
-    async loadSchema() {
+    async listDatabases() {
       const pool = await openPool(requireProfile());
       try {
-        const { recordset } = await pool.request().query(SCHEMA_QUERY);
+        const { recordset } = await pool.request().query(DATABASES_QUERY);
+        return recordset.map((row: { name: string }) => row.name);
+      } finally {
+        await pool.close();
+      }
+    },
+
+    async loadSchema(database) {
+      const pool = await openPool(requireProfile());
+      try {
+        const { recordset } = await pool.request().batch(inDatabase(SCHEMA_QUERY, database));
         return schemaFromRows(recordset);
       } finally {
         await pool.close();
       }
     },
 
-    async execute(sessionId, sqlText, maxRows): Promise<ExecuteResult> {
+    async execute(sessionId, sqlText, maxRows, database): Promise<ExecuteResult> {
       const started = Date.now();
       const resultSets: ResultSet[] = [];
       const messages: string[] = [];
@@ -163,7 +185,9 @@ export function createDatabase(driver: SqlDriver, buildConfig: (profile: Connect
             request.cancel();
           }
         });
-        request.on('info', (info: { message: string }) => messages.push(info.message));
+        request.on('info', (info: { message: string }) => {
+          if (!CONTEXT_CHANGED.test(info.message)) messages.push(info.message);
+        });
         // 'done' is documented as always the last event. A driver that fails to send it after
         // an error would leave the tab waiting forever, so the request is given up on instead.
         let grace: ReturnType<typeof setTimeout> | undefined;
@@ -181,7 +205,7 @@ export function createDatabase(driver: SqlDriver, buildConfig: (profile: Connect
           clearTimeout(grace);
           resolve();
         });
-        void request.batch(sqlText).catch(() => undefined);
+        void request.batch(inDatabase(sqlText, database)).catch(() => undefined);
       });
 
       // A stalled request still holds the session's only connection, so the session is replaced.

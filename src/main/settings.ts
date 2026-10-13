@@ -37,7 +37,7 @@ export function writeSettings(change: Partial<Settings>): Settings {
 }
 
 const sameServer = (a: Omit<ConnectionProfile, 'password'>, b: Omit<ConnectionProfile, 'password'>) =>
-  a.server.toLowerCase() === b.server.toLowerCase() && (a.port ?? null) === (b.port ?? null) && a.database.toLowerCase() === b.database.toLowerCase() && a.user.toLowerCase() === b.user.toLowerCase();
+  a.server.toLowerCase() === b.server.toLowerCase() && (a.database ?? '').toLowerCase() === (b.database ?? '').toLowerCase() && a.user.toLowerCase() === b.user.toLowerCase();
 
 const samePath = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 

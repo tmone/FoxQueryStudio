@@ -107,6 +107,23 @@ describe.skipIf(!isLocalDbAvailable())('application database service and query f
   });
 
   describe('database service', () => {
+    it('lists the databases the login can open and reads the objects of any of them', async () => {
+      const names = await db.listDatabases();
+      expect(names).toContain(DATABASE);
+      expect(names).toContain('master');
+      expect((await db.loadSchema(DATABASE)).map((t) => t.name)).toContain('NhanVien');
+      expect((await db.loadSchema('master')).map((t) => t.name)).not.toContain('NhanVien');
+    });
+
+    it('runs a batch in the database the tab chose, without reporting the context change', async () => {
+      const inMaster = await db.execute('ctx', 'SELECT DB_NAME() AS db', MAX_ROWS, 'master');
+      expect(inMaster.resultSets[0].rows).toEqual([['master']]);
+      expect(inMaster.messages).toEqual([]);
+      const inApp = await db.execute('ctx', 'SELECT DB_NAME() AS db, COUNT(*) AS n FROM dbo.PhongBan', MAX_ROWS, DATABASE);
+      expect(inApp.error).toBeUndefined();
+      expect(inApp.resultSets[0].rows).toEqual([[DATABASE, 3]]);
+    });
+
     it('rejects a connection that cannot be opened and stays usable', async () => {
       const other = createDatabase(sqlv8, buildConfig);
       await expect(other.connect({ ...PROFILE, database: 'FqsNoSuchDatabase' })).rejects.toThrow();

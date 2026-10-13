@@ -387,6 +387,11 @@ export function createFoxEngine(locateVfp: () => string | undefined = findVfp): 
       if (child) await request(`CLOSE|${sessionId}|0`).catch(() => undefined);
     },
 
+    async listDatabases() {
+      const path = openedPath ?? '';
+      return [path.split(/[\\/]/).filter(Boolean).pop() ?? path];
+    },
+
     async loadSchema() {
       const answer = await request('SCHEMA|__schema|0');
       await request('CLOSE|__schema|0');

@@ -63,7 +63,7 @@ export function createConnections(newSqlDatabase: () => SqlDatabase, newFoxEngin
       await this.disconnect(id);
       const backend = newSqlDatabase();
       await backend.connect(profile);
-      const info: ConnectionInfo = { id, kind: 'sql', server: profile.server, user: profile.user, database: profile.database };
+      const info: ConnectionInfo = { id, kind: 'sql', server: profile.server, user: profile.user, database: profile.database ?? '' };
       connections.set(info.id, { info, backend });
       return info;
     },
@@ -101,8 +101,9 @@ export function createConnections(newSqlDatabase: () => SqlDatabase, newFoxEngin
       await Promise.allSettled(all.map((id) => this.disconnect(id)));
     },
 
-    loadSchema: (id: string): Promise<SchemaTable[]> => get(id).backend.loadSchema(),
-    execute: (id: string, sessionId: string, sql: string, maxRows: number) => get(id).backend.execute(sessionId, sql, maxRows),
+    listDatabases: (id: string): Promise<string[]> => get(id).backend.listDatabases(),
+    loadSchema: (id: string, database: string): Promise<SchemaTable[]> => get(id).backend.loadSchema(database),
+    execute: (id: string, sessionId: string, sql: string, maxRows: number, database?: string) => get(id).backend.execute(sessionId, sql, maxRows, database),
     closeSession: (id: string, sessionId: string) => connections.get(id)?.backend.closeSession(sessionId) ?? Promise.resolve(),
   };
 }

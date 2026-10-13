@@ -212,6 +212,10 @@ button.version.failed {
   display: none;
 }
 
+.tree .database.current > summary {
+  color: var(--accent);
+}
+
 /* The connection new queries run on. */
 .tree .server.current > summary {
   color: var(--accent);
@@ -361,6 +365,23 @@ button.version.failed {
 
 .toolbar .divider {
   margin: 0 4px;
+}
+
+/* The database the active tab runs in, as the Available Databases box of SSMS. */
+.toolbar .tool-select {
+  height: 24px;
+  max-width: 220px;
+  margin: 0 4px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+  font: inherit;
+  color: inherit;
+}
+
+.toolbar .tool-select[hidden] {
+  display: none;
 }
 
 /* Icon buttons, flat until hovered, as in SSMS. */

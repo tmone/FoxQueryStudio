@@ -37,8 +37,9 @@ interface Tab {
   /** File the tab was opened from or saved to. */
   filePath?: string;
   language: QueryLanguage;
-  /** The connection the tab runs on; unset until one is chosen. */
+  /** The connection and database the tab runs on; unset until one is chosen. */
   connectionId?: string;
+  database?: string;
   model: monaco.editor.ITextModel;
   cursors: string[];
   currentCursor?: string;
@@ -52,10 +53,16 @@ interface Tab {
   hasOutput: boolean;
 }
 
-/** An open connection with the objects loaded from it and the column lookups the converters need. */
-interface Connection extends ExplorerConnection {
+/** The objects of one database and the column lookups the converters need for it. */
+interface Lookups {
+  tables: SchemaTable[];
   resolveColumnKind: ColumnKindResolver;
   resolveColumnWidth: ReturnType<typeof columnWidthResolver>;
+}
+
+/** An open connection: its databases, with lookups for those whose objects were loaded. */
+interface Connection extends ExplorerConnection {
+  lookups: Record<string, Lookups>;
 }
 
 const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -105,15 +112,17 @@ let tabCounter = 0;
 const connections: Connection[] = [];
 /** Every remembered connection, open or not; the explorer shows them all. */
 let registrations: Registration[] = [];
-/** The connection new tabs are bound to. */
+/** The connection and database new tabs are bound to. */
 let currentConnectionId: string | undefined;
+let currentDatabase: string | undefined;
 let running = false;
-const NO_CONNECTION: Pick<Connection, 'tables' | 'resolveColumnKind' | 'resolveColumnWidth'> = { tables: [], resolveColumnKind: columnKindResolver([]), resolveColumnWidth: columnWidthResolver([]) };
+const NO_LOOKUPS: Lookups = { tables: [], resolveColumnKind: columnKindResolver([]), resolveColumnWidth: columnWidthResolver([]) };
 
 const findConnection = (id: string | undefined) => connections.find((c) => c.id === id);
 /** The connection of a tab, if it is still open. */
 const connectionOf = (tab: Tab) => findConnection(tab.connectionId);
-const lookups = (tab: Tab) => connectionOf(tab) ?? NO_CONNECTION;
+const lookups = (tab: Tab) => connectionOf(tab)?.lookups[tab.database ?? ''] ?? NO_LOOKUPS;
+const tabDatabaseSelect = el<HTMLSelectElement>('tab-database');
 
 const insertIntoEditor = (text: string) => {
   editor.trigger('explorer', 'type', { text });
@@ -122,14 +131,15 @@ const insertIntoEditor = (text: string) => {
 
 const explorer = createExplorer(el('explorer-tree'), {
   insertText: insertIntoEditor,
-  selectTop: (connectionId, table) => {
-    newTab(`SELECT TOP ${PREVIEW_ROWS} * FROM ${qualifiedName(table)} ORDER BY 1`, undefined, undefined, connectionId);
+  selectTop: (connectionId, database, table) => {
+    newTab(`SELECT TOP ${PREVIEW_ROWS} * FROM ${qualifiedName(table)} ORDER BY 1`, undefined, undefined, connectionId, database);
     void run();
   },
+  loadDatabase: (connectionId, database) => void loadDatabase(connectionId, database),
   connect: (registrationId) => void connectSaved(registrationId),
   remove: (registrationId) => void removeRegistration(registrationId),
   select: selectConnection,
-  useForActiveTab: (connectionId) => bindTab(active, connectionId),
+  useForActiveTab: (connectionId) => bindTab(active, connectionId, currentConnectionId === connectionId ? currentDatabase : undefined),
   refresh: (connectionId) => void refreshSchema(connectionId),
   disconnect: (connectionId) => void disconnect(connectionId),
 });
@@ -141,7 +151,8 @@ function renderStatus(): void {
   // The app bar speaks for the whole window; the tab's own connection is on the strip under the editor.
   statusBar.classList.toggle('connected', connections.length > 0);
   statusState.textContent = connections.length ? `${connections.length} kết nối đang mở` : 'Chưa có kết nối';
-  statusConnection.textContent = !connection ? 'Tab chưa gắn kết nối' : connection.kind === 'foxpro' ? `FoxPro: ${connection.localPath}` : `${connection.user} @ ${connection.server} / ${connection.database}`;
+  statusConnection.textContent = !connection ? 'Tab chưa gắn kết nối' : connection.kind === 'foxpro' ? `FoxPro: ${connection.localPath}` : `${connection.user} @ ${connection.server} / ${active.database ?? ''}`;
+  renderDatabaseSelect(connection);
   statusCursor.textContent = active.currentCursor ? `Cursor: ${active.currentCursor}` : '';
 
   const result = active.result;
@@ -199,13 +210,13 @@ function activate(tab: Tab): void {
   renderOutput();
   renderCompare();
   setSchema(lookups(tab).tables);
-  explorer.setCursors(tab.connectionId, tab.cursors, tab.currentCursor);
+  explorer.setCursors(tab.connectionId, tab.database, tab.cursors, tab.currentCursor);
 }
 
 const languageOfFile = (path: string): QueryLanguage => (path.toLowerCase().endsWith(LANGUAGES.tsql.extension) ? 'tsql' : 'foxpro');
 
 /** A new query starts in the language of the tab it was opened from. */
-function newTab(text = '', filePath?: string, language: QueryLanguage = filePath ? languageOfFile(filePath) : (active?.language ?? 'foxpro'), connectionId = currentConnectionId): void {
+function newTab(text = '', filePath?: string, language: QueryLanguage = filePath ? languageOfFile(filePath) : (active?.language ?? 'foxpro'), connectionId = currentConnectionId, database = currentDatabase): void {
   tabCounter++;
   const tab: Tab = {
     id: crypto.randomUUID(),
@@ -213,6 +224,7 @@ function newTab(text = '', filePath?: string, language: QueryLanguage = filePath
     filePath,
     language,
     connectionId,
+    database,
     model: createModel(text, LANGUAGES[language].monacoId),
     cursors: [],
     messages: '',
@@ -320,10 +332,10 @@ const formatDiagnostics = (label: string, list: Diagnostic[]) => list.map((d) =>
 
 /** Runs on one connection; IPC errors arrive wrapped by Electron and are rethrown with the server's own message. */
 const executeOn =
-  (connectionId: string) =>
+  (connectionId: string, database: string | undefined) =>
   async (sessionId: string, sql: string, maxRows: number): Promise<ExecuteResult> => {
     try {
-      return await window.db.execute(connectionId, sessionId, sql, maxRows);
+      return await window.db.execute(connectionId, sessionId, sql, maxRows, database);
     } catch (e) {
       throw new Error(ipcErrorMessage(e));
     }
@@ -333,8 +345,8 @@ async function run(): Promise<void> {
   const tab = active;
   const connection = connectionOf(tab);
   if (!connection || running) return;
-  const { resolveColumnKind, resolveColumnWidth } = connection;
-  const executeOnServer = executeOn(connection.id);
+  const { resolveColumnKind, resolveColumnWidth } = lookups(tab);
+  const executeOnServer = executeOn(connection.id, tab.database);
   const selection = editor.getSelection();
   const useSelection = selection !== null && !selection.isEmpty();
   const source = useSelection ? tab.model.getValueInRange(selection) : tab.model.getValue();
@@ -405,7 +417,7 @@ async function run(): Promise<void> {
   if (tab === active) {
     renderOutput();
     renderCompare();
-    explorer.setCursors(tab.connectionId, tab.cursors, tab.currentCursor);
+    explorer.setCursors(tab.connectionId, tab.database, tab.cursors, tab.currentCursor);
   }
 }
 
@@ -498,7 +510,6 @@ const sqlRegistrations = () => registrations.filter((r): r is Registration & { k
 function fillConnectForm(saved: (Registration & { kind: 'sql' }) | undefined): void {
   const profile = saved?.profile;
   field('server').value = profile?.server ?? '';
-  field('port').value = profile?.port ? String(profile.port) : '';
   field('database').value = profile?.database ?? '';
   field('user').value = profile?.user ?? '';
   field('password').value = '';
@@ -513,7 +524,7 @@ function openConnectDialog(registrationId?: string): void {
   const saved = sqlRegistrations();
   savedSelect.replaceChildren(
     new Option('(mới)', ''),
-    ...saved.map((r) => new Option(`${registrationLabel(r)} / ${r.profile.database}`, r.id)),
+    ...saved.map((r) => new Option(`${registrationLabel(r)}${r.profile.database ? ` / ${r.profile.database}` : ''}`, r.id)),
   );
   const chosen = saved.find((r) => r.id === registrationId) ?? saved[saved.length - 1];
   savedSelect.value = chosen?.id ?? '';
@@ -527,57 +538,127 @@ async function loadRegistrations(): Promise<void> {
   renderExplorer();
 }
 
-/** Makes the connection the one new tabs use; the first connection also takes the tabs opened before it. */
-function selectConnection(connectionId: string): void {
+/**
+ * Makes the connection (and database) the one new tabs use; the first connection also takes
+ * the tabs opened before it.
+ */
+function selectConnection(connectionId: string, database?: string): void {
+  const connection = findConnection(connectionId);
+  if (!connection) return;
   currentConnectionId = connectionId;
+  currentDatabase = database ?? (currentDatabase && connection.databases.some((d) => d.name === currentDatabase) ? currentDatabase : connection.databases[0]?.name);
   for (const tab of tabs) {
-    if (!tab.connectionId) tab.connectionId = connectionId;
+    if (!tab.connectionId) {
+      tab.connectionId = connectionId;
+      tab.database = currentDatabase;
+    }
   }
+  // As in SSMS, choosing a node never moves an open query; the database box or the context menu does that.
   renderExplorer();
   renderStatus();
 }
 
 /** Moves a tab onto another connection; its cursors stay behind with the old session. */
-function bindTab(tab: Tab, connectionId: string): void {
-  if (tab.connectionId === connectionId) return;
-  if (tab.connectionId) void window.db.closeSession(tab.connectionId, tab.id);
+function bindTab(tab: Tab, connectionId: string, database?: string): void {
+  if (tab.connectionId === connectionId && (database === undefined || tab.database === database)) return;
+  if (tab.connectionId && tab.connectionId !== connectionId) void window.db.closeSession(tab.connectionId, tab.id);
   tab.connectionId = connectionId;
+  tab.database = database ?? findConnection(connectionId)?.databases[0]?.name;
   tab.cursors = [];
   tab.currentCursor = undefined;
   currentConnectionId = connectionId;
-  if (tab === active) activate(tab);
-  renderExplorer();
+  currentDatabase = tab.database;
+  void ensureLoaded(connectionId, tab.database).then(() => {
+    if (tab === active) activate(tab);
+    renderExplorer();
+  });
+}
+
+/** Switches the tab to another database of its connection, as the SSMS database box does. Cursors stay in the session. */
+function setTabDatabase(tab: Tab, database: string): void {
+  if (!tab.connectionId || tab.database === database) return;
+  tab.database = database;
+  currentConnectionId = tab.connectionId;
+  currentDatabase = database;
+  void ensureLoaded(tab.connectionId, database).then(() => {
+    if (tab === active) activate(tab);
+    renderExplorer();
+  });
 }
 
 function renderExplorer(): void {
   explorer.setEntries(
     registrations.map((registration) => ({ registration, connection: findConnection(registration.id) })),
     currentConnectionId,
+    currentDatabase,
   );
-  explorer.setCursors(active.connectionId, active.cursors, active.currentCursor);
+  explorer.setCursors(active.connectionId, active.database, active.cursors, active.currentCursor);
 }
 
-function withSchema(info: ConnectionInfo, tables: SchemaTable[]): Connection {
-  return { ...info, tables, resolveColumnKind: columnKindResolver(tables), resolveColumnWidth: columnWidthResolver(tables) };
+/** The toolbar box with the databases of the active tab's connection, as in SSMS. */
+function renderDatabaseSelect(connection: Connection | undefined): void {
+  const shown = connection?.kind === 'sql' && connection.databases.length > 0;
+  tabDatabaseSelect.hidden = !shown;
+  if (!shown) return;
+  const names = connection.databases.map((d) => d.name);
+  if ([...tabDatabaseSelect.options].map((o) => o.value).join('\n') !== names.join('\n')) tabDatabaseSelect.replaceChildren(...names.map((name) => new Option(name, name)));
+  tabDatabaseSelect.value = active.database ?? '';
 }
 
-/** Adds (or replaces) a connection with its objects and makes it current. */
-function addConnection(info: ConnectionInfo, tables: SchemaTable[]): void {
+const withLookups = (tables: SchemaTable[]): Lookups => ({ tables, resolveColumnKind: columnKindResolver(tables), resolveColumnWidth: columnWidthResolver(tables) });
+
+/** Loads the objects of a database once; the explorer and the converters read them from the connection. */
+async function ensureLoaded(connectionId: string, database: string | undefined): Promise<void> {
+  const connection = findConnection(connectionId);
+  if (!connection || !database || connection.lookups[database]) return;
+  try {
+    const tables = await window.db.loadSchema(connectionId, database);
+    connection.lookups[database] = withLookups(tables);
+    const entry = connection.databases.find((d) => d.name === database);
+    if (entry) entry.tables = tables;
+  } catch (e) {
+    report(active, `Không nạp được danh sách đối tượng của ${database}: ${ipcErrorMessage(e)}`);
+  }
+}
+
+async function loadDatabase(connectionId: string, database: string): Promise<void> {
+  await ensureLoaded(connectionId, database);
+  renderExplorer();
+  if (active.connectionId === connectionId && active.database === database) setSchema(lookups(active).tables);
+}
+
+/**
+ * Adds (or replaces) a connection: lists its databases, loads the one it starts in and makes
+ * that the current one. `preferred` is the database the profile named, if any.
+ */
+async function addConnection(info: ConnectionInfo, preferred?: string): Promise<Connection> {
+  const names = await window.db.listDatabases(info.id);
+  const connection: Connection = { ...info, databases: names.map((name) => ({ name })), lookups: {} };
   const index = connections.findIndex((c) => c.id === info.id);
-  const connection = withSchema(info, tables);
   if (index < 0) connections.push(connection);
   else connections[index] = connection;
-  selectConnection(info.id);
-  setSchema(lookups(active).tables);
+  const start = (preferred && names.find((n) => n.toLowerCase() === preferred.toLowerCase())) ?? names[0];
+  await ensureLoaded(info.id, start);
+  currentConnectionId = info.id;
+  currentDatabase = start;
+  for (const tab of tabs) {
+    if (!tab.connectionId) {
+      tab.connectionId = info.id;
+      tab.database = start;
+    }
+  }
+  if (active.connectionId === info.id) activate(active);
+  renderExplorer();
+  renderStatus();
   renderCompare();
+  return connection;
 }
 
 async function submitConnection(event: SubmitEvent): Promise<void> {
   event.preventDefault();
   const profile: ConnectionProfile = {
     server: field('server').value.trim(),
-    port: field('port').value ? Number(field('port').value) : undefined,
-    database: field('database').value.trim(),
+    database: field('database').value.trim() || undefined,
     user: field('user').value.trim(),
     password: field('password').value,
     encrypt: field('encrypt').checked,
@@ -589,9 +670,8 @@ async function submitConnection(event: SubmitEvent): Promise<void> {
   try {
     // An empty password means "the one stored with the remembered connection".
     const info = !profile.password && saved?.hasPassword ? await window.db.connectSaved(saved.id) : await window.db.connect(profile, field('remember').checked);
-    const tables = await window.db.loadSchema(info.id);
     await loadRegistrations();
-    addConnection(info, tables);
+    await addConnection(info, profile.database);
     connectDialog.close();
     editor.focus();
   } catch (e) {
@@ -618,10 +698,9 @@ async function openFoxPro(): Promise<void> {
   try {
     const info = await window.db.openFoxPro();
     if (!info) return;
-    const tables = await window.db.loadSchema(info.id);
     await loadRegistrations();
-    addConnection(info, tables);
-    report(tab, `Đã mở ${info.localPath}: ${tables.length} bảng. Truy vấn chạy bằng chính FoxPro; T-SQL được chuyển sang FoxPro trước khi chạy.`);
+    const connection = await addConnection(info);
+    report(tab, `Đã mở ${info.localPath}: ${connection.databases[0]?.tables?.length ?? 0} bảng. Truy vấn chạy bằng chính FoxPro; T-SQL được chuyển sang FoxPro trước khi chạy.`);
   } catch (e) {
     report(tab, `Không mở được CSDL FoxPro: ${ipcErrorMessage(e)}`);
   } finally {
@@ -638,9 +717,8 @@ async function connectSaved(registrationId: string): Promise<void> {
   renderStatus();
   try {
     const info = await window.db.connectSaved(registrationId);
-    const tables = await window.db.loadSchema(info.id);
     await loadRegistrations();
-    addConnection(info, tables);
+    await addConnection(info, info.database);
   } catch (e) {
     const message = ipcErrorMessage(e);
     if (message.includes(NEEDS_PASSWORD)) openConnectDialog(registrationId);
@@ -671,10 +749,14 @@ async function disconnect(connectionId: string | undefined = active.connectionId
   for (const tab of tabs) {
     if (tab.connectionId !== connectionId) continue;
     tab.connectionId = undefined;
+    tab.database = undefined;
     tab.cursors = [];
     tab.currentCursor = undefined;
   }
-  if (currentConnectionId === connectionId) currentConnectionId = connections[connections.length - 1]?.id;
+  if (currentConnectionId === connectionId) {
+    currentConnectionId = connections[connections.length - 1]?.id;
+    currentDatabase = connections[connections.length - 1]?.databases[0]?.name;
+  }
   renderExplorer();
   setSchema(lookups(active).tables);
   renderCompare();
@@ -684,11 +766,15 @@ async function disconnect(connectionId: string | undefined = active.connectionId
 async function refreshSchema(connectionId: string | undefined = active.connectionId): Promise<void> {
   const connection = findConnection(connectionId);
   if (!connection) return;
+  // Databases may have appeared or gone; the objects of the loaded ones are read again on demand.
   try {
-    const tables = await window.db.loadSchema(connection.id);
-    Object.assign(connection, withSchema(connection, tables));
+    const names = await window.db.listDatabases(connection.id);
+    connection.databases = names.map((name) => ({ name }));
+    connection.lookups = {};
+    await ensureLoaded(connection.id, active.connectionId === connection.id ? active.database : currentDatabase);
     renderExplorer();
     setSchema(lookups(active).tables);
+    renderStatus();
   } catch (e) {
     report(active, `Không nạp lại được danh sách đối tượng: ${ipcErrorMessage(e)}`);
   }
@@ -825,6 +911,7 @@ window.updates.onStatus(renderUpdate);
 void window.updates.getStatus().then(renderUpdate);
 
 savedSelect.addEventListener('change', () => fillConnectForm(sqlRegistrations().find((r) => r.id === savedSelect.value)));
+tabDatabaseSelect.addEventListener('change', () => setTabDatabase(active, tabDatabaseSelect.value));
 newTab();
 void (async () => {
   const startup = await window.registry.startup();

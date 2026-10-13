@@ -3,8 +3,14 @@ import type { ConnectionInfo, SchemaTable } from '../../shared/types';
 import { displayName, qualifiedName } from './editor';
 
 /** A connection as the explorer shows it: its identity and the objects loaded from it. */
+/** A database of a connection; its tables are loaded the first time it is opened. */
+export interface ExplorerDatabase {
+  name: string;
+  tables?: SchemaTable[];
+}
+
 export interface ExplorerConnection extends ConnectionInfo {
-  tables: SchemaTable[];
+  databases: ExplorerDatabase[];
 }
 
 /** A remembered connection and, while it is open, its live side. */
@@ -19,10 +25,12 @@ export interface ExplorerActions {
   connect(registrationId: string): void;
   /** Forgets a remembered connection, closing it first. */
   remove(registrationId: string): void;
-  /** Opens a new query on the connection that reads the first rows of the table. */
-  selectTop(connectionId: string, table: SchemaTable): void;
-  /** Makes the connection the one new queries use. */
-  select(connectionId: string): void;
+  /** Opens a new query on the connection and database that reads the first rows of the table. */
+  selectTop(connectionId: string, database: string, table: SchemaTable): void;
+  /** Makes the connection (and database, when given) the one new queries use. */
+  select(connectionId: string, database?: string): void;
+  /** Loads the tables of a database the first time its node is opened. */
+  loadDatabase(connectionId: string, database: string): void;
   /** Moves the active query tab onto the connection. */
   useForActiveTab(connectionId: string): void;
   refresh(connectionId: string): void;
@@ -95,8 +103,11 @@ export const registrationLabel = (r: Registration) => (r.kind === 'foxpro' ? `Fo
  */
 export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
   let entries: ExplorerEntry[] = [];
-  /** The connection new queries use. */
+  /** The connection and database new queries use. */
   let currentId: string | undefined;
+  let currentDatabase: string | undefined;
+  /** Database of the active tab, where its cursors are shown. */
+  let cursorsDatabase: string | undefined;
   let filter = '';
   /** Cursors of the active tab, shown under its connection. */
   let cursors: string[] = [];
@@ -134,13 +145,13 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
     contextMenu = menu;
   }
 
-  function tableNode(connectionId: string, table: SchemaTable): HTMLDetailsElement {
+  function tableNode(connectionId: string, database: string, table: SchemaTable): HTMLDetailsElement {
     const { details, summary } = node(table.isView ? 'view' : 'table', displayName(table));
     summary.title = 'Nhấp đúp để chèn tên; nhấp phải để xem thêm lệnh';
     summary.addEventListener('dblclick', () => actions.insertText(qualifiedName(table)));
     summary.addEventListener('contextmenu', (event) =>
       showContextMenu(event, [
-        { label: 'Xem 100 dòng đầu', icon: 'preview', run: () => actions.selectTop(connectionId, table) },
+        { label: 'Xem 100 dòng đầu', icon: 'preview', run: () => actions.selectTop(connectionId, database, table) },
         { label: 'Chèn tên vào truy vấn', icon: 'insertName', run: () => actions.insertText(qualifiedName(table)) },
         { label: 'Chèn danh sách cột', icon: 'insertColumns', run: () => actions.insertText(table.columns.map((c) => c.name).join(', ')) },
       ]),
@@ -174,14 +185,43 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
     cursorsNode.append(list);
   }
 
-  function connectionNode(connection: ExplorerConnection): HTMLDetailsElement {
-    const visible = connection.tables.filter((t) => displayName(t).toLowerCase().includes(filter));
-    const group = (title: string, tables: SchemaTable[], open: boolean) => {
-      const { details } = node('group', `${title} (${tables.length})`, open);
-      details.append(...tables.map((t) => tableNode(connection.id, t)));
-      return details;
+  function databaseNode(connection: ExplorerConnection, database: ExplorerDatabase): HTMLDetailsElement {
+    const isCurrent = connection.id === currentId && database.name === currentDatabase;
+    const holdsCursors = connection.id === cursorsConnectionId && database.name === cursorsDatabase;
+    const { details, summary } = node('database', database.name, isCurrent || holdsCursors || connection.databases.length === 1);
+    details.classList.toggle('current', isCurrent);
+    summary.title = 'Nhấp để chọn làm CSDL cho truy vấn mới';
+    summary.addEventListener('click', () => actions.select(connection.id, database.name));
+    const fill = () => {
+      const visible = (database.tables ?? []).filter((t) => displayName(t).toLowerCase().includes(filter));
+      const group = (title: string, tables: SchemaTable[], open: boolean) => {
+        const { details: folder } = node('group', `${title} (${tables.length})`, open);
+        folder.append(...tables.map((t) => tableNode(connection.id, database.name, t)));
+        return folder;
+      };
+      details.append(
+        group('Bảng', visible.filter((t) => !t.isView), true),
+        // With a filter typed, matching views should be visible without another click.
+        group('View', visible.filter((t) => t.isView), filter !== ''),
+      );
+      if (holdsCursors) {
+        cursorsNode = node('cursors', '', true).details;
+        details.append(cursorsNode);
+      }
     };
+    if (database.tables) fill();
+    else {
+      const loading = document.createElement('div');
+      loading.className = 'empty';
+      loading.textContent = 'Mở để nạp danh sách bảng…';
+      details.append(loading);
+      // Tables arrive through setEntries once loaded; the node is rebuilt then.
+      details.addEventListener('toggle', () => details.open && actions.loadDatabase(connection.id, database.name), { once: true });
+    }
+    return details;
+  }
 
+  function connectionNode(connection: ExplorerConnection): HTMLDetailsElement {
     const server = node('server', connectionLabel(connection), true);
     server.details.classList.toggle('current', connection.id === currentId);
     server.summary.title = connection.id === currentId ? 'Kết nối của truy vấn mới' : 'Nhấp để chọn làm kết nối cho truy vấn mới';
@@ -194,17 +234,7 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
         { label: 'Xóa khỏi danh sách', icon: 'remove', run: () => actions.remove(connection.id) },
       ]),
     );
-    const database = node('database', connection.database, true);
-    database.details.append(
-      group('Bảng', visible.filter((t) => !t.isView), true),
-      // With a filter typed, matching views should be visible without another click.
-      group('View', visible.filter((t) => t.isView), filter !== ''),
-    );
-    if (connection.id === cursorsConnectionId) {
-      cursorsNode = node('cursors', '', true).details;
-      database.details.append(cursorsNode);
-    }
-    server.details.append(database.details);
+    server.details.append(...connection.databases.map((database) => databaseNode(connection, database)));
     return server.details;
   }
 
@@ -240,9 +270,10 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
 
   render();
   return {
-    setEntries(next: ExplorerEntry[], current: string | undefined): void {
+    setEntries(next: ExplorerEntry[], current: string | undefined, database: string | undefined): void {
       entries = next;
       currentId = current;
+      currentDatabase = database;
       render();
     },
     setFilter(text: string): void {
@@ -250,11 +281,12 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
       render();
     },
     /** Cursors change after almost every run, so they are redrawn without touching the rest of the tree. */
-    setCursors(connectionId: string | undefined, names: string[], current: string | undefined): void {
+    setCursors(connectionId: string | undefined, database: string | undefined, names: string[], current: string | undefined): void {
       cursors = names;
       currentCursor = current;
-      if (connectionId !== cursorsConnectionId) {
+      if (connectionId !== cursorsConnectionId || database !== cursorsDatabase) {
         cursorsConnectionId = connectionId;
+        cursorsDatabase = database;
         render();
       } else {
         renderCursors();
