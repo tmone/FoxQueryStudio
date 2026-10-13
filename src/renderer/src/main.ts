@@ -632,24 +632,39 @@ async function loadDatabase(connectionId: string, database: string): Promise<voi
  * that the current one. `preferred` is the database the profile named, if any.
  */
 async function addConnection(info: ConnectionInfo, preferred?: string): Promise<Connection> {
-  const names = await window.db.listDatabases(info.id);
-  const connection: Connection = { ...info, databases: names.map((name) => ({ name })), lookups: {} };
+  // The connection shows up at once; its databases and objects arrive while the user carries on.
+  const connection: Connection = { ...info, databases: [], lookups: {}, loading: true };
   const index = connections.findIndex((c) => c.id === info.id);
   if (index < 0) connections.push(connection);
   else connections[index] = connection;
-  const start = (preferred && names.find((n) => n.toLowerCase() === preferred.toLowerCase())) ?? names[0];
-  await ensureLoaded(info.id, start);
   currentConnectionId = info.id;
-  currentDatabase = start;
+  currentDatabase = undefined;
   for (const tab of tabs) {
-    if (!tab.connectionId) {
-      tab.connectionId = info.id;
-      tab.database = start;
-    }
+    if (!tab.connectionId) tab.connectionId = info.id;
   }
-  if (active.connectionId === info.id) activate(active);
   renderExplorer();
   renderStatus();
+
+  let names: string[] = [];
+  try {
+    names = await window.db.listDatabases(info.id);
+  } catch (e) {
+    report(active, `Không liệt kê được cơ sở dữ liệu: ${ipcErrorMessage(e)}`);
+  }
+  if (!connections.includes(connection)) return connection;
+  connection.databases = names.map((name) => ({ name }));
+  connection.loading = false;
+  const start = (preferred && names.find((n) => n.toLowerCase() === preferred.toLowerCase())) ?? names[0];
+  if (currentConnectionId === info.id) currentDatabase = start;
+  for (const tab of tabs) {
+    if (tab.connectionId === info.id && !tab.database) tab.database = start;
+  }
+  renderExplorer();
+  renderStatus();
+  await ensureLoaded(info.id, start);
+  if (!connections.includes(connection)) return connection;
+  explorer.databaseLoaded(info.id, start ?? '');
+  if (active.connectionId === info.id) activate(active);
   renderCompare();
   return connection;
 }
@@ -670,10 +685,11 @@ async function submitConnection(event: SubmitEvent): Promise<void> {
   try {
     // An empty password means "the one stored with the remembered connection".
     const info = !profile.password && saved?.hasPassword ? await window.db.connectSaved(saved.id) : await window.db.connect(profile, field('remember').checked);
-    await loadRegistrations();
-    await addConnection(info, info.database);
+    // The login is verified: the dialog goes away now; the tree fills in the background.
     connectDialog.close();
     editor.focus();
+    await loadRegistrations();
+    void addConnection(info, info.database);
   } catch (e) {
     connectError.textContent = `Không kết nối được: ${ipcErrorMessage(e)}`;
     connectError.hidden = false;
@@ -699,8 +715,8 @@ async function openFoxPro(): Promise<void> {
     const info = await window.db.openFoxPro();
     if (!info) return;
     await loadRegistrations();
-    const connection = await addConnection(info);
-    report(tab, `Đã mở ${info.localPath}: ${connection.databases[0]?.tables?.length ?? 0} bảng. Truy vấn chạy bằng chính FoxPro; T-SQL được chuyển sang FoxPro trước khi chạy.`);
+    report(tab, `Đã mở ${info.localPath}. Truy vấn chạy bằng chính FoxPro; T-SQL được chuyển sang FoxPro trước khi chạy.`);
+    void addConnection(info);
   } catch (e) {
     report(tab, `Không mở được CSDL FoxPro: ${ipcErrorMessage(e)}`);
   } finally {
@@ -718,7 +734,7 @@ async function connectSaved(registrationId: string): Promise<void> {
   try {
     const info = await window.db.connectSaved(registrationId);
     await loadRegistrations();
-    await addConnection(info, info.database);
+    void addConnection(info, info.database);
   } catch (e) {
     const message = ipcErrorMessage(e);
     if (message.includes(NEEDS_PASSWORD)) openConnectDialog(registrationId);

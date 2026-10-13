@@ -10,6 +10,8 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { _electron as electron } from 'playwright-core';
 
 const { FQS_E2E_SERVER: SERVER, FQS_E2E_PORT: PORT = '1433', FQS_E2E_DATABASE: DATABASE, FQS_E2E_USER: USER, FQS_E2E_PASSWORD: PASSWORD } = process.env;
@@ -40,6 +42,8 @@ const step = (name, detail) => {
 
 // Shells spawned by an Electron host (VS Code) set this and make electron.exe run as plain Node.
 const { ELECTRON_RUN_AS_NODE: _ignored, ...env } = process.env;
+// Remembered connections of this machine must not leak into the test.
+env.FQS_USER_DATA = join(tmpdir(), 'fqs-real-server-user-data');
 const app = await electron.launch({ args: ['.'], env });
 const errors = [];
 try {
@@ -79,10 +83,14 @@ try {
   await page.click('#connect-submit');
   await page.waitForFunction(() => !document.getElementById('connect-dialog').open || !document.getElementById('connect-error').hidden, null, { timeout: 120_000 });
   assert.equal(await page.isVisible('#connect-error'), false, `connect failed: ${await page.textContent('#connect-error')}`);
-  const connectSeconds = ((Date.now() - connectStarted) / 1000).toFixed(1);
+  const dialogSeconds = ((Date.now() - connectStarted) / 1000).toFixed(1);
+  // The dialog closes as soon as the login is verified; the tree fills in while the user carries on.
+  await page.waitForSelector('#explorer-tree .server:not(.offline) .spinner', { timeout: 10_000 }).catch(() => undefined);
+  await page.waitForFunction(() => document.querySelector('#explorer-tree .database.current > .group'), null, { timeout: 120_000 });
+  const treeSeconds = ((Date.now() - connectStarted) / 1000).toFixed(1);
   assert.match(await page.textContent('#status-connection'), new RegExp(DATABASE));
   assert.equal(await page.isDisabled('#btn-run'), false);
-  step('connects over TCP and loads the schema', `${connectSeconds} s`);
+  step('connects over TCP and loads the schema', `dialog closed after ${dialogSeconds} s, tree ready after ${treeSeconds} s`);
 
   // ---- Object explorer -----------------------------------------------------------------
   const [[tableCount, viewCount]] = sqlcmd(

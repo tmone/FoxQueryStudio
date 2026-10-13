@@ -172,7 +172,8 @@ try {
     await app.evaluate(({ dialog }, path) => (dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })), join(fixtures, 'northwind.dbc'));
     await page.keyboard.press('Control+Shift+O');
     await page.waitForFunction(() => /Đã mở|Không mở được/.test(document.getElementById('pane-messages').textContent), null, { timeout: 180_000 });
-    assert.match(await messages(), /Đã mở .*northwind\.dbc: 11 bảng\./);
+    assert.match(await messages(), /Đã mở .*northwind\.dbc\./);
+    await page.waitForSelector('#explorer-tree .server:not(.offline) .group', { timeout: 60_000 });
     assert.match(await page.textContent('#explorer-tree .server:not(.offline) > summary'), /^FoxPro \(.*northwind\.dbc\)$/);
     assert.equal(await page.textContent('#explorer-tree .group > summary'), 'Bảng (11)');
     assert.equal(await page.textContent('#status-state'), '1 kết nối đang mở');

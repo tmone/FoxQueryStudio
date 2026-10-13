@@ -11,6 +11,8 @@ export interface ExplorerDatabase {
 /** A connection as the explorer shows it: its identity and its databases. */
 export interface ExplorerConnection extends ConnectionInfo {
   databases: ExplorerDatabase[];
+  /** True while the list of databases is still on its way. */
+  loading?: boolean;
 }
 
 /** A remembered connection and, while it is open, its live side. */
@@ -105,6 +107,18 @@ function node(kind: NodeKind, iconName: IconName, label: string, open = false): 
   summary.append(icon(iconName), text);
   details.append(summary);
   return { details, summary };
+}
+
+/** A line with a turning ring, for a node whose contents are on their way. */
+function loadingLine(text: string): HTMLDivElement {
+  const line = document.createElement('div');
+  line.className = 'empty loading';
+  const ring = document.createElement('span');
+  ring.className = 'spinner';
+  ring.setAttribute('role', 'progressbar');
+  ring.setAttribute('aria-label', text);
+  line.append(ring, text);
+  return line;
 }
 
 function leaf(className: string, iconName: IconName, label: string, detail = ''): HTMLLIElement {
@@ -236,10 +250,14 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
   function fillDatabase(details: HTMLDetailsElement, connection: ExplorerConnection, database: ExplorerDatabase): void {
     details.querySelectorAll(':scope > .group, :scope > .empty').forEach((e) => e.remove());
     if (!database.tables) {
-      const loading = document.createElement('div');
-      loading.className = 'empty';
-      loading.textContent = 'Mở để nạp danh sách bảng…';
-      details.append(loading);
+      // Closed: a hint; open: the ring, since the tables are being fetched.
+      if (details.open) details.append(loadingLine('Đang nạp danh sách bảng…'));
+      else {
+        const hint = document.createElement('div');
+        hint.className = 'empty';
+        hint.textContent = 'Mở để nạp danh sách bảng…';
+        details.append(hint);
+      }
       return;
     }
     const visible = database.tables.filter((t) => displayName(t).toLowerCase().includes(filter));
@@ -265,7 +283,10 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
     details.addEventListener('toggle', () => {
       if (details.open) openDatabases.add(key);
       else openDatabases.delete(key);
-      if (details.open && !database.tables) actions.loadDatabase(connection.id, database.name);
+      if (!database.tables) {
+        fillDatabase(details, connection, database);
+        if (details.open) actions.loadDatabase(connection.id, database.name);
+      }
     });
     databaseNodes.set(key, { details, connection, database });
     fillDatabase(details, connection, database);
@@ -287,6 +308,7 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
         { label: 'Xóa khỏi danh sách', icon: 'remove', run: () => actions.remove(connection.id) },
       ]),
     );
+    if (connection.loading) server.details.append(loadingLine('Đang nạp danh sách cơ sở dữ liệu…'));
     server.details.append(...connection.databases.map((database) => databaseNode(connection, database)));
     serverNodes.set(connection.id, server.details);
     return server.details;
