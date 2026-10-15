@@ -152,6 +152,12 @@ describe.skipIf(!available)('FoxPro engine for databases opened from disk', () =
     expect(none.error).toMatch(/No table is open/i);
   });
 
+  it('lets comments say anything, and refuses only statements with characters outside Windows-1252', async () => {
+    expect(await rows(session('cp'), '* Thay bảng lương của tháng rồi chạy && ghi chú có dấu\nSELECT COUNT(*) FROM region')).toEqual([[records('region').length]]);
+    const refused = await engine.execute('cp', 'SELECT * FROM region WHERE regiondescription = "Miền Bắc"', MAX_ROWS);
+    expect(refused.error).toMatch(/ngoài bảng mã Windows-1252.*Miền Bắc/);
+  });
+
   it('shows a General (OLE) field as binary instead of failing the row', async () => {
     const outcome = await run(session('general'), 'SELECT TOP 2 categoryid, picture FROM categories ORDER BY categoryid');
     expect(outcome.result!.resultSets[0].rows).toEqual([[1, '(nhị phân)'], [2, '(nhị phân)']]);

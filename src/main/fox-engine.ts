@@ -500,8 +500,10 @@ export function createFoxEngine(locateVfp: () => string | undefined = findVfp): 
     async execute(sessionId, source, maxRows): Promise<ExecuteResult> {
       const started = Date.now();
       const failed = (error: string, sessionReset?: boolean): ExecuteResult => ({ resultSets: [], messages: [], error, truncated: false, sessionReset, elapsedMs: Date.now() - started });
-      if (!fitsCodePage(source)) return failed('Lệnh có ký tự ngoài bảng mã Windows-1252 của CSDL FoxPro.');
+      // Comments never reach FoxPro, so they may say anything; the statements themselves must fit the code page.
       const statements = toRunnable(source);
+      const foreign = statements.find((s) => !fitsCodePage(s.statement));
+      if (foreign) return failed(`Lệnh có ký tự ngoài bảng mã Windows-1252 của CSDL FoxPro: ${foreign.statement.split('\n')[0].trim()}`);
       const violation = statements.map((s) => readOnlyViolation(s.statement)).find(Boolean);
       if (violation) return failed(violation);
       // The request is framed by lines starting with "#S|"; such a line inside a statement would
