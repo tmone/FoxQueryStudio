@@ -369,15 +369,19 @@ button.version.failed {
   margin-top: 6px;
 }
 
+/* Connection roots carry no expander arrow, open or not, so their labels line up; a click on the label opens them. */
+.tree .server > summary {
+  list-style: none;
+}
+
+.tree .server > summary::-webkit-details-marker {
+  display: none;
+}
+
 /* A remembered connection that is not open. */
 .tree .server.offline > summary {
   color: var(--muted);
   font-weight: 400;
-  list-style: none;
-}
-
-.tree .server.offline > summary::-webkit-details-marker {
-  display: none;
 }
 
 /* The connection and database new queries run on. */

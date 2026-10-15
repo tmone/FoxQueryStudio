@@ -1,7 +1,7 @@
 import { app, safeStorage } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import type { Registration } from '../shared/registry';
 import type { ConnectionProfile } from '../shared/types';
 
@@ -68,12 +68,18 @@ export function registerSql(profile: ConnectionProfile, rememberPassword: boolea
   return entry.id;
 }
 
+/**
+ * Remembers a FoxPro database. A kit that was moved or copied brings the same database under a
+ * new path: an entry for a same-named database whose file is gone is taken over rather than
+ * left beside the new one.
+ */
 export function registerFoxPro(path: string): string {
-  const registrations = stored();
+  const name = basename(path).toLowerCase();
+  const stale = (r: StoredRegistration) => r.kind === 'foxpro' && !samePath(r.path, path) && basename(r.path).toLowerCase() === name && !existsSync(r.path);
+  const registrations = stored().filter((r) => !stale(r));
   const existing = registrations.find((r) => r.kind === 'foxpro' && samePath(r.path, path));
-  if (existing) return existing.id;
-  const entry: StoredRegistration = { id: randomUUID(), kind: 'foxpro', path };
-  save([...registrations, entry]);
+  const entry: StoredRegistration = existing ?? { id: randomUUID(), kind: 'foxpro', path };
+  save(existing ? registrations : [...registrations, entry]);
   return entry.id;
 }
 
