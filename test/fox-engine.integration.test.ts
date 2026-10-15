@@ -75,9 +75,10 @@ describe.skipIf(!available)('FoxPro engine for databases opened from disk', () =
   it('keeps a cursor between runs of one tab and away from other tabs', async () => {
     const tab = session('cursor');
     const made = await run(tab, 'SELECT productname, unitprice FROM products WHERE unitprice > 50 INTO CURSOR dat');
-    expect(made.result!.resultSets).toEqual([]);
-    expect(tab.cursors).toEqual(['dat']);
     const expensive = records('products').filter((p) => Number(p.unitprice) > 50).length;
+    // The cursor's rows are shown right away, and the cursor stays for the next statement.
+    expect(made.result!.resultSets[0].rows).toHaveLength(expensive);
+    expect(tab.cursors).toEqual(['dat']);
     expect(await rows(tab, 'SELECT COUNT(*) FROM dat')).toEqual([[expensive]]);
 
     const other = await engine.execute('other', 'SELECT COUNT(*) FROM dat', MAX_ROWS);

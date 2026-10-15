@@ -100,10 +100,11 @@ function buildProgram(scripts: VfpScript[], source: VfpSource, outputPath: strin
   ];
   scripts.forEach((script, index) => {
     lines.push(`=FWRITE(gnOut, "#CASE|${index}" + CHR(13) + CHR(10))`);
-    for (const { statement, dumps } of toRunnable(script.source)) {
+    for (const { statement, shows } of toRunnable(script.source)) {
       // EXECSCRIPT compiles each statement on its own, so one bad statement cannot stop the program.
       lines.push('TEXT TO lcStatement NOSHOW', statement, 'ENDTEXT', '=EXECSCRIPT(lcStatement)');
-      if (dumps) lines.push(`DO fqs_dump WITH "${RESULT_CURSOR}"`);
+      // The oracle compares query results only; a cursor the script names is not read back.
+      if (shows === RESULT_CURSOR) lines.push(`DO fqs_dump WITH "${RESULT_CURSOR}"`);
     }
   });
   lines.push('=FCLOSE(gnOut)', 'CLOSE DATABASES ALL', 'QUIT', DUMP_PROCEDURE);

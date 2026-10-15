@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { readOnlyViolation, splitStatements, toRunnable } from '../src/shared/fox-statements';
 
+describe('runnable statements', () => {
+  it('shows the rows of a plain SELECT, of BROWSE and of a named cursor, which stays', () => {
+    expect(toRunnable('SELECT * FROM nv')).toEqual([{ statement: 'SELECT * FROM nv INTO CURSOR fqs_r', shows: 'fqs_r' }]);
+    expect(toRunnable('SELECT * FROM nv INTO CURSOR c1\nSELECT c1\nBROWSE FIELDS a')).toEqual([
+      { statement: 'SELECT * FROM nv INTO CURSOR c1', shows: 'c1' },
+      { statement: 'SELECT c1' },
+      { statement: 'SELECT a FROM c1 INTO CURSOR fqs_r', shows: 'fqs_r' },
+    ]);
+  });
+});
+
 describe('read-only guard for FoxPro statements', () => {
   it('lets queries through', () => {
     for (const s of ['SELECT * FROM nv', 'select a, b from nv where x = 1 INTO CURSOR c', 'BROWSE FIELDS a FOR b > 1', 'SELECT ALLTRIM(ten), VAL(x) FROM nv']) {

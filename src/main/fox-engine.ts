@@ -42,7 +42,7 @@ gcDatabase = "@DBC@"
 gnOut = -1
 ON ERROR DO fqs_error WITH ERROR(), MESSAGE()
 SET DEFAULT TO "@DIR@"
-LOCAL lcRequestFile, lcAnswerFile, lcPartFile, lcRequest, lcOp, lcSession, lcStatement, llDump, llHave, lnLines, lnI
+LOCAL lcRequestFile, lcAnswerFile, lcPartFile, lcRequest, lcOp, lcSession, lcStatement, lcShow, llHave, lnLines, lnI
 LOCAL ARRAY laLines[1]
 lcRequestFile = "@WORK@\request.txt"
 lcAnswerFile = "@WORK@\answer.txt"
@@ -79,17 +79,17 @@ DO WHILE .T.
     FOR lnI = 2 TO lnLines
       IF LEFT(laLines[lnI], 3) == "#S|"
         IF llHave
-          DO fqs_run WITH lcStatement, llDump
+          DO fqs_run WITH lcStatement, lcShow
         ENDIF
         lcStatement = ""
-        llDump = SUBSTR(laLines[lnI], 4, 1) == "1"
+        lcShow = SUBSTR(laLines[lnI], 4)
         llHave = .T.
       ELSE
         lcStatement = lcStatement + laLines[lnI] + CHR(13) + CHR(10)
       ENDIF
     ENDFOR
     IF llHave
-      DO fqs_run WITH lcStatement, llDump
+      DO fqs_run WITH lcStatement, lcShow
     ENDIF
   ENDCASE
   =FWRITE(gnOut, "#END" + CHR(13) + CHR(10))
@@ -121,11 +121,12 @@ PROCEDURE fqs_use(tcSession)
   ENDIF
 ENDPROC
 
-PROCEDURE fqs_run(tcStatement, tlDump)
+PROCEDURE fqs_run(tcStatement, tcShow)
   * EXECSCRIPT compiles each statement on its own, so one bad statement cannot stop the server.
   =EXECSCRIPT(tcStatement)
-  IF tlDump
-    DO fqs_dump WITH "${RESULT_CURSOR}"
+  * The result cursor is read once and closed; a cursor the user named stays open for later statements.
+  IF !EMPTY(tcShow)
+    DO fqs_dump WITH tcShow, (LOWER(tcShow) == "${RESULT_CURSOR}")
   ENDIF
 ENDPROC
 
@@ -162,7 +163,7 @@ PROCEDURE fqs_schema
 ENDPROC
 
 * Dumps a cursor with typed, delimiter-safe cells (strings as hex of their bytes).
-PROCEDURE fqs_dump(tcAlias)
+PROCEDURE fqs_dump(tcAlias, tlClose)
   LOCAL lnI, lcLine, luV, lcT, lnRows
   IF !USED(tcAlias)
     =FWRITE(gnOut, "#NOCURSOR" + CHR(13) + CHR(10))
@@ -211,7 +212,11 @@ PROCEDURE fqs_dump(tcAlias)
     ENDFOR
     =FWRITE(gnOut, lcLine + CHR(13) + CHR(10))
   ENDSCAN
-  USE IN (tcAlias)
+  IF tlClose
+    USE IN (tcAlias)
+  ELSE
+    GO TOP
+  ENDIF
 ENDPROC
 
 PROCEDURE fqs_error(tnError, tcMessage)
@@ -442,7 +447,7 @@ export function createFoxEngine(locateVfp: () => string | undefined = findVfp): 
       let answer: Answer;
       try {
         const worker = await workerFor(sessionId);
-        answer = await request(worker, sessionId, `EXEC|${sessionId}|${maxRows}`, statements.flatMap((s) => [`${FRAME_PREFIX}${s.dumps ? 1 : 0}`, ...s.statement.split('\n')]));
+        answer = await request(worker, sessionId, `EXEC|${sessionId}|${maxRows}`, statements.flatMap((s) => [`${FRAME_PREFIX}${s.shows ?? ''}`, ...s.statement.split('\n')]));
       } catch (e) {
         return failed((e as Error).message, true);
       }

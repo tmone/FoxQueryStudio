@@ -3,8 +3,8 @@ export const RESULT_CURSOR = 'fqs_r';
 
 export interface RunnableStatement {
   statement: string;
-  /** True when the statement leaves its rows in RESULT_CURSOR. */
-  dumps: boolean;
+  /** The cursor whose rows the statement shows, when it produces one: a cursor it names, or RESULT_CURSOR. */
+  shows?: string;
 }
 
 /** Joins continuation lines and drops comments, returning one string per statement. */
@@ -37,19 +37,20 @@ export function toRunnable(source: string): RunnableStatement[] {
       const fields = /\bFIELDS\b(.*?)(?=\bFOR\b|$)/is.exec(browse[1])?.[1].trim() || '*';
       const condition = /\bFOR\b(.*)$/is.exec(browse[1])?.[1].trim();
       const where = condition ? ` WHERE ${condition}` : '';
-      return { statement: `SELECT ${fields} FROM ${current}${where} INTO CURSOR ${RESULT_CURSOR}`, dumps: true };
+      return { statement: `SELECT ${fields} FROM ${current}${where} INTO CURSOR ${RESULT_CURSOR}`, shows: RESULT_CURSOR };
     }
     const workArea = /^\s*SELECT\s+(\w+)\s*$/i.exec(statement);
     if (workArea) {
       current = workArea[1];
-      return { statement, dumps: false };
+      return { statement };
     }
+    // A named cursor stays for later statements; its rows are shown too, as the user expects to see them.
     const into = /\bINTO\s+CURSOR\s+(\w+)/i.exec(statement);
     if (into) {
       current = into[1];
-      return { statement, dumps: false };
+      return { statement, shows: current };
     }
-    return { statement: `${statement} INTO CURSOR ${RESULT_CURSOR}`, dumps: true };
+    return { statement: `${statement} INTO CURSOR ${RESULT_CURSOR}`, shows: RESULT_CURSOR };
   });
 }
 
