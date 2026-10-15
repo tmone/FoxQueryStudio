@@ -7,6 +7,8 @@ export interface QuerySession {
   id: string;
   cursors: string[];
   currentCursor?: string;
+  /** Table opened with USE, current until a cursor takes its place. */
+  currentTable?: string;
 }
 
 export interface QueryOptions {
@@ -31,6 +33,7 @@ export async function runFoxQuery(execute: DbBackend['execute'], session: QueryS
   const conversion = convertFoxPro(source, {
     knownCursors: session.cursors,
     currentCursor: session.currentCursor,
+    currentTable: session.currentTable,
     resolveColumnKind: options.resolveColumnKind,
   });
   if (conversion.errors.length) return { conversion };
@@ -38,6 +41,7 @@ export async function runFoxQuery(execute: DbBackend['execute'], session: QueryS
   const accept = () => {
     session.cursors = conversion.cursors;
     session.currentCursor = conversion.currentCursor;
+    session.currentTable = conversion.currentTable;
   };
   if (!conversion.sql) {
     accept();
@@ -54,6 +58,7 @@ export async function runFoxQuery(execute: DbBackend['execute'], session: QueryS
   if (result.sessionReset) {
     session.cursors = [];
     session.currentCursor = undefined;
+    session.currentTable = undefined;
   } else if (!result.error) {
     accept();
   }
@@ -90,6 +95,7 @@ export async function runTsqlQuery(
   if (result.sessionReset) {
     session.cursors = [];
     session.currentCursor = undefined;
+    session.currentTable = undefined;
   } else if (!result.error) {
     session.cursors = [...new Set([...session.cursors, ...conversion.cursors])];
   }
@@ -125,13 +131,14 @@ export async function runOnFoxPro(
 
   if (language === 'foxpro') {
     // FoxPro is the authority on its own syntax; the T-SQL form is only shown alongside.
-    const conversion = convertFoxPro(source, { knownCursors: session.cursors, currentCursor: session.currentCursor, resolveColumnKind: options.resolveColumnKind });
+    const conversion = convertFoxPro(source, { knownCursors: session.cursors, currentCursor: session.currentCursor, currentTable: session.currentTable, resolveColumnKind: options.resolveColumnKind });
     translation = conversion.sql;
     warnings = [...conversion.errors, ...conversion.warnings];
     accept = () => {
       if (conversion.errors.length) return;
       session.cursors = conversion.cursors;
       session.currentCursor = conversion.currentCursor;
+      session.currentTable = conversion.currentTable;
     };
   } else {
     const conversion = convertTsql(source, options);
@@ -155,6 +162,7 @@ export async function runOnFoxPro(
   if (result.sessionReset) {
     session.cursors = [];
     session.currentCursor = undefined;
+    session.currentTable = undefined;
   } else if (!result.error) {
     accept();
   }

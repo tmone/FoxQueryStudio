@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { readOnlyViolation, RESULT_CURSOR, toRunnable } from '../shared/fox-statements';
+import { mismatchHint, readOnlyViolation, RESULT_CURSOR, toRunnable, type RunnableStatement } from '../shared/fox-statements';
 import type { CellValue, DbBackend, ExecuteResult, ResultSet, SchemaTable } from '../shared/types';
 
 /**
@@ -35,14 +35,14 @@ SET TALK OFF
 SET SAFETY OFF
 SET EXCLUSIVE OFF
 SET TABLEPROMPT OFF
-PUBLIC gnOut, gnMax, goSessions, gcDatabase
+PUBLIC gnOut, gnMax, goSessions, gcDatabase, glFailed
 DECLARE Sleep IN kernel32 INTEGER
 goSessions = CREATEOBJECT("Collection")
 gcDatabase = "@DBC@"
 gnOut = -1
 ON ERROR DO fqs_error WITH ERROR(), MESSAGE()
 SET DEFAULT TO "@DIR@"
-LOCAL lcRequestFile, lcAnswerFile, lcPartFile, lcRequest, lcOp, lcSession, lcStatement, lcShow, llHave, lnLines, lnI
+LOCAL lcRequestFile, lcAnswerFile, lcPartFile, lcRequest, lcOp, lcSession, lcStatement, lcFrame, lcShow, lcKind, lcLabels, llHave, lnLines, lnI
 LOCAL ARRAY laLines[1]
 lcRequestFile = "@WORK@\request.txt"
 lcAnswerFile = "@WORK@\answer.txt"
@@ -79,17 +79,21 @@ DO WHILE .T.
     FOR lnI = 2 TO lnLines
       IF LEFT(laLines[lnI], 3) == "#S|"
         IF llHave
-          DO fqs_run WITH lcStatement, lcShow
+          DO fqs_run WITH lcStatement, lcShow, lcKind, lcLabels
         ENDIF
         lcStatement = ""
-        lcShow = SUBSTR(laLines[lnI], 4)
+        * The frame: cursor to show | A (array) or V (value) for a figure command | its labels in hex, comma-separated; "-" for none.
+        lcFrame = SUBSTR(laLines[lnI], 4)
+        lcShow = GETWORDNUM(lcFrame, 1, "|")
+        lcKind = GETWORDNUM(lcFrame, 2, "|")
+        lcLabels = GETWORDNUM(lcFrame, 3, "|")
         llHave = .T.
       ELSE
         lcStatement = lcStatement + laLines[lnI] + CHR(13) + CHR(10)
       ENDIF
     ENDFOR
     IF llHave
-      DO fqs_run WITH lcStatement, lcShow
+      DO fqs_run WITH lcStatement, lcShow, lcKind, lcLabels
     ENDIF
   ENDCASE
   =FWRITE(gnOut, "#END" + CHR(13) + CHR(10))
@@ -121,14 +125,82 @@ PROCEDURE fqs_use(tcSession)
   ENDIF
 ENDPROC
 
-PROCEDURE fqs_run(tcStatement, tcShow)
+PROCEDURE fqs_run(tcStatement, tcShow, tcKind, tcLabels)
+  LOCAL lnArea
+  IF !(tcKind == "-")
+    DO fqs_calc WITH tcStatement, tcKind, tcLabels
+    RETURN
+  ENDIF
+  lnArea = SELECT()
   * EXECSCRIPT compiles each statement on its own, so one bad statement cannot stop the server.
   =EXECSCRIPT(tcStatement)
-  * The result cursor is read once and closed; a cursor the user named stays open for later statements.
-  IF !EMPTY(tcShow)
+  * The result cursor is read once and closed, and the work area goes back to what it was, so a
+  * table opened with USE stays current; a cursor the user named stays open and current, as in FoxPro.
+  IF !(tcShow == "-")
     DO fqs_dump WITH tcShow, (LOWER(tcShow) == "${RESULT_CURSOR}")
+    IF LOWER(tcShow) == "${RESULT_CURSOR}"
+      SELECT (lnArea)
+    ENDIF
   ENDIF
 ENDPROC
+
+* Runs SUM, AVERAGE, CALCULATE (TO ARRAY gaCalc) or COUNT (TO gnCalc) and writes the figures as one row.
+PROCEDURE fqs_calc(tcStatement, tcKind, tcLabels)
+  LOCAL lnI, lcLine, lnFields, lcCols
+  LOCAL ARRAY laF[1]
+  RELEASE gaCalc, gnCalc
+  PUBLIC gaCalc[1], gnCalc
+  gaCalc[1] = .NULL.
+  gnCalc = .NULL.
+  glFailed = .F.
+  =EXECSCRIPT(tcStatement)
+  IF glFailed
+    RETURN
+  ENDIF
+  lcCols = IIF(tcLabels == "-", "", STRTRAN(tcLabels, ",", "|"))
+  IF EMPTY(lcCols) AND tcKind == "A"
+    * No list given: FoxPro summed every numeric field of the table, in field order.
+    lnFields = AFIELDS(laF)
+    FOR lnI = 1 TO lnFields
+      IF INLIST(laF[lnI, 2], "N", "F", "I", "Y", "B")
+        lcCols = lcCols + IIF(EMPTY(lcCols), "", "|") + STRCONV(LOWER(laF[lnI, 1]), 15)
+      ENDIF
+    ENDFOR
+  ENDIF
+  =FWRITE(gnOut, "#COLS|" + STRCONV(ALIAS(), 15) + "|" + lcCols + CHR(13) + CHR(10))
+  lcLine = "#ROW"
+  IF tcKind == "V"
+    lcLine = lcLine + fqs_cell(gnCalc)
+  ELSE
+    FOR lnI = 1 TO ALEN(gaCalc)
+      lcLine = lcLine + fqs_cell(gaCalc[lnI])
+    ENDFOR
+  ENDIF
+  =FWRITE(gnOut, lcLine + CHR(13) + CHR(10))
+ENDPROC
+
+* One typed, delimiter-safe cell (strings as hex of their bytes), with its leading separator.
+FUNCTION fqs_cell(luV)
+  LOCAL lcT
+  lcT = VARTYPE(luV)
+  DO CASE
+  CASE ISNULL(luV)
+    RETURN "|X:"
+  CASE lcT = "C"
+    RETURN "|C:" + STRCONV(luV, 15)
+  CASE lcT = "Y"
+    RETURN "|N:" + ALLTRIM(STR(MTON(luV), 30, 8))
+  CASE lcT = "N"
+    RETURN "|N:" + ALLTRIM(STR(luV, 30, 8))
+  CASE lcT = "D"
+    RETURN "|D:" + DTOS(luV)
+  CASE lcT = "T"
+    RETURN "|T:" + TTOC(luV, 1)
+  CASE lcT = "L"
+    RETURN "|L:" + IIF(luV, "T", "F")
+  ENDCASE
+  RETURN "|?:" + lcT
+ENDFUNC
 
 PROCEDURE fqs_schema
   LOCAL lnTables, lnFiles, lnI, lnJ, lnFields, lcName
@@ -164,7 +236,7 @@ ENDPROC
 
 * Dumps a cursor with typed, delimiter-safe cells (strings as hex of their bytes).
 PROCEDURE fqs_dump(tcAlias, tlClose)
-  LOCAL lnI, lcLine, luV, lcT, lnRows
+  LOCAL lnI, lcLine, lnRows
   IF !USED(tcAlias)
     =FWRITE(gnOut, "#NOCURSOR" + CHR(13) + CHR(10))
     RETURN
@@ -189,26 +261,7 @@ PROCEDURE fqs_dump(tcAlias, tlClose)
         lcLine = lcLine + "|?:G"
         LOOP
       ENDIF
-      luV = EVALUATE(tcAlias + "." + FIELD(lnI))
-      lcT = VARTYPE(luV)
-      DO CASE
-      CASE ISNULL(luV)
-        lcLine = lcLine + "|X:"
-      CASE lcT = "C"
-        lcLine = lcLine + "|C:" + STRCONV(luV, 15)
-      CASE lcT = "Y"
-        lcLine = lcLine + "|N:" + ALLTRIM(STR(MTON(luV), 30, 8))
-      CASE lcT = "N"
-        lcLine = lcLine + "|N:" + ALLTRIM(STR(luV, 30, 8))
-      CASE lcT = "D"
-        lcLine = lcLine + "|D:" + DTOS(luV)
-      CASE lcT = "T"
-        lcLine = lcLine + "|T:" + TTOC(luV, 1)
-      CASE lcT = "L"
-        lcLine = lcLine + "|L:" + IIF(luV, "T", "F")
-      OTHERWISE
-        lcLine = lcLine + "|?:" + lcT
-      ENDCASE
+      lcLine = lcLine + fqs_cell(EVALUATE(tcAlias + "." + FIELD(lnI)))
     ENDFOR
     =FWRITE(gnOut, lcLine + CHR(13) + CHR(10))
   ENDSCAN
@@ -220,6 +273,7 @@ PROCEDURE fqs_dump(tcAlias, tlClose)
 ENDPROC
 
 PROCEDURE fqs_error(tnError, tcMessage)
+  glFailed = .T.
   IF gnOut >= 0
     =FWRITE(gnOut, "#ERR|" + TRANSFORM(tnError) + "|" + STRCONV(tcMessage, 15) + CHR(13) + CHR(10))
   ENDIF
@@ -227,6 +281,9 @@ ENDPROC
 `;
 
 const decodeHex = (hex: string) => new TextDecoder(CODE_PAGE).decode(Buffer.from(hex, 'hex'));
+const encodeHex = (text: string) => Buffer.from(text, 'latin1').toString('hex');
+/** The frame line before each statement: what to show, the figure kind and its labels; `-` stands for none. */
+const frameOf = (s: RunnableStatement) => `${FRAME_PREFIX}${s.shows ?? '-'}|${s.calc ? s.calc.kind[0].toUpperCase() : '-'}|${s.calc?.labels.length ? s.calc.labels.map(encodeHex).join(',') : '-'}`;
 const fitsCodePage = (text: string) => !/[^\x00-\xff]/.test(text);
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -262,13 +319,20 @@ interface Answer {
   errors: string[];
   truncated: boolean;
   tables: SchemaTable[];
+  /** Result sets that hold the figures of SUM/COUNT/…, with the table they were taken from. */
+  figures: { set: number; table: string }[];
 }
 
 function parseAnswer(text: string): Answer {
-  const answer: Answer = { resultSets: [], errors: [], truncated: false, tables: [] };
+  const answer: Answer = { resultSets: [], errors: [], truncated: false, tables: [], figures: [] };
   for (const line of text.split(/\r?\n/).filter(Boolean)) {
     const [tag, ...cells] = line.split('|');
     if (tag === '#SET') answer.resultSets.push({ columns: cells.map((c) => c.toLowerCase()), rows: [] });
+    else if (tag === '#COLS') {
+      // Figures of a SUM/COUNT/…: the table's alias, then the labels as typed, in hex.
+      answer.figures.push({ set: answer.resultSets.length, table: decodeHex(cells[0]).toLowerCase() });
+      answer.resultSets.push({ columns: cells.slice(1).filter(Boolean).map(decodeHex), rows: [] });
+    }
     else if (tag === '#ROW') answer.resultSets[answer.resultSets.length - 1].rows.push(cells.map(parseCell));
     else if (tag === '#TRUNC') answer.truncated = true;
     else if (tag === '#ERR') answer.errors.push(decodeHex(cells[1]));
@@ -447,13 +511,19 @@ export function createFoxEngine(locateVfp: () => string | undefined = findVfp): 
       let answer: Answer;
       try {
         const worker = await workerFor(sessionId);
-        answer = await request(worker, sessionId, `EXEC|${sessionId}|${maxRows}`, statements.flatMap((s) => [`${FRAME_PREFIX}${s.shows ?? ''}`, ...s.statement.split('\n')]));
+        answer = await request(worker, sessionId, `EXEC|${sessionId}|${maxRows}`, statements.flatMap((s) => [frameOf(s), ...s.statement.split('\n')]));
       } catch (e) {
         return failed((e as Error).message, true);
       }
+      // A check of the form `SUM stored - formula` that is not 0 gets the query that lists the rows at fault.
+      const calcs = statements.map((s) => s.calc).filter((c): c is NonNullable<typeof c> => !!c);
+      const messages = answer.figures.flatMap(({ set, table }, k) => {
+        const { columns, rows } = answer.resultSets[set];
+        return columns.map((label, i) => mismatchHint(label, rows[0]?.[i], table, calcs[k]?.condition)).filter((hint): hint is string => !!hint);
+      });
       return {
         resultSets: answer.resultSets,
-        messages: [],
+        messages,
         error: answer.errors.length ? answer.errors.join('\n') : undefined,
         truncated: answer.truncated,
         elapsedMs: Date.now() - started,

@@ -22,6 +22,8 @@ export interface ConvertOptions {
   knownCursors?: Iterable<string>;
   /** Cursor that BROWSE reads when no cursor has been selected in this run. */
   currentCursor?: string;
+  /** Table opened with USE in an earlier run, read by BROWSE, SUM, COUNT… when no cursor is current. */
+  currentTable?: string;
   /**
    * Kind of a column, given its qualifier and the tables of its statement.
    * Build one from a schema with `createColumnResolver`.
@@ -55,11 +57,13 @@ export interface ConvertResult {
   /** Every cursor known after this run, lower-cased. */
   cursors: string[];
   currentCursor?: string;
+  currentTable?: string;
 }
 
 interface State extends FunctionContext {
   cursors: Set<string>;
   currentCursor?: string;
+  currentTable?: string;
   resolveColumnKind?: ColumnKindResolver;
   /** Tables read by the statement being converted. */
   tables: TableRef[];
@@ -560,14 +564,65 @@ function expandHavingAliases(body: Token[], items: SelectItem[]): Token[] {
 
 // ---------- Statements ----------
 
-function requireCursor(state: State, line: number): string {
-  if (!state.currentCursor) throw new ConvertError('Chưa có cursor nào. Hãy chạy SELECT ... INTO CURSOR trước.', line);
-  return state.currentCursor;
+/** The table of the current work area in T-SQL: the #temp table of the current cursor, or the table USE opened. */
+function currentSource(state: State, line: number): string {
+  if (state.currentCursor) return cursorTable(state.currentCursor);
+  if (state.currentTable) return state.currentTable;
+  throw new ConvertError('Chưa có bảng hay cursor nào. Hãy USE bảng hoặc chạy SELECT ... INTO CURSOR trước.', line);
+}
+
+/** `USE table [ALIAS name] …` makes the table current; `USE` alone closes it. */
+function convertUse(tokens: Token[], state: State): undefined {
+  const target = tokens[1];
+  state.currentCursor = undefined;
+  if (!target) {
+    state.currentTable = undefined;
+    return undefined;
+  }
+  const aliasAt = findTopLevel(tokens, (t) => isWord(t, 'ALIAS'));
+  const alias = aliasAt >= 0 ? tokens[aliasAt + 1]?.text : undefined;
+  // The table is named by a path or a bare name; its alias defaults to the file's stem.
+  const stem = target.text.replace(/^["'\[]|["'\]]$/g, '').split(/[\\/]/).pop()!.replace(/\.dbf$/i, '');
+  state.currentTable = (alias ?? stem).toLowerCase();
+  return undefined;
+}
+
+const CALC_CLAUSES = new Set(['FOR', 'WHILE', 'ALL', 'NEXT', 'RECORD', 'REST', 'TO', 'NOOPTIMIZE']);
+const AGGREGATE_OF: Record<string, string | undefined> = { SUM: 'SUM', AVERAGE: 'AVG', CALCULATE: undefined };
+
+/** SUM, AVERAGE, CALCULATE and COUNT on the current table become one aggregate SELECT. */
+function convertCalc(tokens: Token[], state: State): string {
+  const line = tokens[0].line;
+  const command = tokens[0].text.toUpperCase();
+  const table = currentSource(state, line);
+  const rest = tokens.slice(1);
+  const clauseAt = findTopLevel(rest, (t) => t.kind === 'ident' && CALC_CLAUSES.has(t.text.toUpperCase()));
+  const forAt = findTopLevel(rest, (t) => isWord(t, 'FOR'));
+  const forEnd = forAt >= 0 ? findTopLevel(rest, (t) => isWord(t, 'WHILE') || isWord(t, 'TO') || isWord(t, 'NOOPTIMIZE'), forAt + 1) : -1;
+  const where = forAt >= 0 ? ` WHERE ${rewrite(rest.slice(forAt + 1, forEnd >= 0 ? forEnd : rest.length), state, 'FOR')}` : '';
+  if (findTopLevel(rest, (t) => isWord(t, 'WHILE') || isWord(t, 'NEXT') || isWord(t, 'REST') || isWord(t, 'RECORD')) >= 0) {
+    state.warn(`${command}: phạm vi WHILE/NEXT/RECORD/REST phụ thuộc thứ tự bản ghi, bản T-SQL bỏ qua.`);
+  }
+  if (command === 'COUNT') return `SELECT COUNT(*) AS so_dong FROM ${table}${where}`;
+  const parts = splitList(clauseAt >= 0 ? rest.slice(0, clauseAt) : rest);
+  if (!parts.length) throw new ConvertError(`${command} không kèm biểu thức: bản T-SQL cần liệt kê cột.`, line);
+  const aggregate = AGGREGATE_OF[command];
+  const items = parts.map((part, i) => {
+    // CALCULATE takes aggregates of its own: CNT() is COUNT(*), STD() is STDEV().
+    const spelled = part.flatMap((t, j) => {
+      if (isWord(t, 'CNT') && isPunct(part[j + 1], '(') && isPunct(part[j + 2], ')')) return [raw('COUNT(*)', t.line)];
+      if (isWord(part[j - 1], 'CNT') || isWord(part[j - 2], 'CNT')) return [];
+      return [t];
+    });
+    const expr = rewrite(spelled, state).replace(/\bSTD\(/gi, 'STDEV(');
+    return `${aggregate ? `${aggregate}(${expr})` : expr} AS ${command.toLowerCase()}${i + 1}`;
+  });
+  return `SELECT ${items.join(', ')} FROM ${table}${where}`;
 }
 
 function convertBrowse(tokens: Token[], state: State): string {
   const line = tokens[0].line;
-  const table = cursorTable(requireCursor(state, line));
+  const table = currentSource(state, line);
   const rest = tokens.slice(1).filter((t) => !isWord(t, 'NOWAIT') && !isWord(t, 'LAST') && !isWord(t, 'NORMAL'));
   const forAt = findTopLevel(rest, (t) => isWord(t, 'FOR'));
   const fieldsAt = findTopLevel(rest, (t) => isWord(t, 'FIELDS'));
@@ -623,8 +678,10 @@ function convertStatement({ tokens }: Statement, state: State): string | undefin
   state.line = head.line;
   state.tables = collectTables(tokens);
   if (isWord(head, 'BROWSE')) return convertBrowse(tokens, state);
+  if (isWord(head, 'USE')) return convertUse(tokens, state);
+  if (['SUM', 'AVERAGE', 'CALCULATE', 'COUNT'].some((word) => isWord(head, word))) return convertCalc(tokens, state);
   if (!isWord(head, 'SELECT')) {
-    throw new ConvertError(`Lệnh ${head.text.toUpperCase()} chưa được hỗ trợ (chỉ SELECT và BROWSE).`, head.line);
+    throw new ConvertError(`Lệnh ${head.text.toUpperCase()} chưa được hỗ trợ (SELECT, BROWSE, USE, SUM, COUNT, AVERAGE, CALCULATE).`, head.line);
   }
   // `SELECT name` on its own selects a work area in FoxPro.
   if (tokens.length === 2 && tokens[1].kind === 'ident') {
@@ -646,6 +703,7 @@ export function convertFoxPro(source: string, options: ConvertOptions = {}): Con
     tables: [],
     cursors: new Set([...(options.knownCursors ?? [])].map((c) => c.toLowerCase())),
     currentCursor: options.currentCursor?.toLowerCase(),
+    currentTable: options.currentTable?.toLowerCase(),
     warn: (message) => warnings.push({ line: state.line, message }),
   };
 
@@ -671,5 +729,6 @@ export function convertFoxPro(source: string, options: ConvertOptions = {}): Con
     warnings,
     cursors: [...state.cursors],
     currentCursor: state.currentCursor,
+    currentTable: state.currentTable,
   };
 }

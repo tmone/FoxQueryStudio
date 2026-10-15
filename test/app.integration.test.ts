@@ -302,7 +302,7 @@ describe.skipIf(!isLocalDbAvailable())('application database service and query f
       const calls: string[] = [];
       const spy: DbBackend['execute'] = (id, sql, max) => (calls.push(sql), db.execute(id, sql, max));
       const outcome = await runFoxQuery(spy, newSession('vn-invalid'), 'SELECT 1 AS a\nREPLACE LuongCoBan WITH 0', { maxRows: MAX_ROWS });
-      expect(outcome.conversion.errors).toEqual([{ line: 2, message: 'Lệnh REPLACE chưa được hỗ trợ (chỉ SELECT và BROWSE).' }]);
+      expect(outcome.conversion.errors).toEqual([{ line: 2, message: 'Lệnh REPLACE chưa được hỗ trợ (SELECT, BROWSE, USE, SUM, COUNT, AVERAGE, CALCULATE).' }]);
       expect(outcome.result).toBeUndefined();
       expect(calls).toEqual([]);
     });

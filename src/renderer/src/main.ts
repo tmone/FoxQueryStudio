@@ -46,6 +46,7 @@ interface Tab {
   model: monaco.editor.ITextModel;
   cursors: string[];
   currentCursor?: string;
+  currentTable?: string;
   result?: ExecuteResult;
   messages: string;
   /** The last run's source in the other language. */
@@ -168,7 +169,7 @@ function renderStatus(): void {
   statusState.textContent = connections.length ? `${connections.length} kết nối đang mở` : 'Chưa có kết nối';
   statusConnection.textContent = !connection ? 'Tab chưa gắn kết nối' : connection.kind === 'foxpro' ? `FoxPro: ${connection.localPath}` : `${connection.user} @ ${connection.server} / ${active.database ?? ''}`;
   renderDatabaseSelect(connection);
-  statusCursor.textContent = active.currentCursor ? `Cursor: ${active.currentCursor}` : '';
+  statusCursor.textContent = active.currentCursor ? `Cursor: ${active.currentCursor}` : active.currentTable ? `Bảng: ${active.currentTable}` : '';
 
   const result = active.result;
   const current = result?.resultSets[active.activeSet];
@@ -468,7 +469,7 @@ interface Translation {
 function translate(tab: Tab, source: string): Translation {
   const { resolveColumnKind, resolveColumnWidth } = lookups(tab);
   if (tab.language === 'foxpro') {
-    const { sql, errors, warnings } = convertFoxPro(source, { knownCursors: tab.cursors, currentCursor: tab.currentCursor, resolveColumnKind });
+    const { sql, errors, warnings } = convertFoxPro(source, { knownCursors: tab.cursors, currentCursor: tab.currentCursor, currentTable: tab.currentTable, resolveColumnKind });
     return { text: sql, errors, warnings };
   }
   const { foxpro, errors, warnings } = convertTsql(source, { resolveColumnKind, resolveColumnWidth });
@@ -601,6 +602,7 @@ function bindTab(tab: Tab, connectionId: string, database?: string): void {
   tab.database = database ?? findConnection(connectionId)?.databases[0]?.name;
   tab.cursors = [];
   tab.currentCursor = undefined;
+  tab.currentTable = undefined;
   currentConnectionId = connectionId;
   currentDatabase = tab.database;
   void ensureLoaded(connectionId, tab.database).then(() => {
@@ -823,6 +825,8 @@ async function disconnect(connectionId: string | undefined = active.connectionId
     tab.database = undefined;
     tab.cursors = [];
     tab.currentCursor = undefined;
+    tab.currentTable = undefined;
+  tab.currentTable = undefined;
   }
   if (currentConnectionId === connectionId) {
     currentConnectionId = connections[connections.length - 1]?.id;

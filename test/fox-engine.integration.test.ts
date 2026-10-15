@@ -119,6 +119,39 @@ describe.skipIf(!available)('FoxPro engine for databases opened from disk', () =
     expect(await rows(session('values'), 'SELECT .T. AS co, {^2026-02-03 04:05:06} AS gio, 12.5 AS so, "Königlich" AS ten FROM region WHERE regionid = 1')).toEqual([[true, '2026-02-03 04:05:06', 12.5, 'Königlich']]);
   });
 
+  it('opens a table with USE and answers SUM, COUNT, AVERAGE, CALCULATE and BROWSE on it, as FoxPro commands', async () => {
+    const tab = session('xbase');
+    const german = records('orders').filter((o) => text(o.shipcountry) === 'Germany');
+    const freight = Number(german.reduce((sum, o) => sum + Number(o.freight), 0).toFixed(2));
+    const outcome = await run(tab, 'USE orders\nSUM freight, freight * 2 FOR ALLTRIM(shipcountry) = "Germany" TO a, b\nCOUNT FOR ALLTRIM(shipcountry) = "Germany"');
+    const [sums, count] = outcome.result!.resultSets;
+    expect(sums.columns).toEqual(['freight', 'freight * 2']);
+    expect(sums.rows).toEqual([[freight, Number((freight * 2).toFixed(2))]]);
+    expect(count).toEqual({ columns: ['count'], rows: [[german.length]] });
+    expect(tab.currentTable).toBe('orders');
+
+    // The table stays current across runs; a plain SUM covers every numeric field.
+    const all = await run(tab, 'SUM');
+    expect(all.result!.resultSets[0].columns).toEqual(['orderid', 'employeeid', 'shipvia', 'freight']);
+    expect(await rows(tab, 'BROWSE FIELDS orderid, shipcountry FOR orderid = 10248')).toEqual([[10248, 'France']]);
+    expect(await rows(tab, 'CALCULATE CNT(), MAX(freight) FOR freight > 500')).toEqual([[records('orders').filter((o) => Number(o.freight) > 500).length, 1007.64]]);
+    expect(await rows(tab, 'AVERAGE freight FOR orderid = 10248')).toEqual([[32.38]]);
+
+    // The customer's check: stored amount minus the formula should sum to 0; otherwise the rows at fault are offered.
+    const check = await run(tab, 'SUM freight - freight FOR orderid < 10250');
+    expect(check.result!.resultSets[0].rows).toEqual([[0]]);
+    expect(check.result!.messages).toEqual([]);
+    const off = await run(tab, 'SUM freight - freight * 2 FOR orderid < 10250');
+    expect(off.result!.messages[0]).toMatch(/^freight - freight \* 2 = -\d+(\.\d+)?, khác 0.*SELECT \*, freight - freight \* 2 AS lech FROM orders WHERE \(orderid < 10250\) AND ABS\(freight - freight \* 2\) > 0\.005$/);
+    expect((await rows(tab, off.result!.messages[0].split('Liệt kê các dòng lệch: ')[1])).length).toBe(2);
+
+    const closed = await run(tab, 'USE');
+    expect(closed.result!.resultSets).toEqual([]);
+    expect(tab.currentTable).toBeUndefined();
+    const none = await engine.execute(tab.id, 'SUM freight', MAX_ROWS);
+    expect(none.error).toMatch(/No table is open/i);
+  });
+
   it('shows a General (OLE) field as binary instead of failing the row', async () => {
     const outcome = await run(session('general'), 'SELECT TOP 2 categoryid, picture FROM categories ORDER BY categoryid');
     expect(outcome.result!.resultSets[0].rows).toEqual([[1, '(nhị phân)'], [2, '(nhị phân)']]);
@@ -144,7 +177,8 @@ describe.skipIf(!available)('FoxPro engine for databases opened from disk', () =
     const attempts = [
       'DELETE FROM region',
       'UPDATE region SET regiondescription = "x"',
-      'USE region',
+      'REPLACE regiondescription WITH "x"',
+      'USE region EXCLUSIVE',
       'SELECT * FROM region INTO TABLE c:\\x',
       'ZAP',
       // Functions with side effects inside a query, and a line that mimics the request framing.
@@ -153,7 +187,7 @@ describe.skipIf(!available)('FoxPro engine for databases opened from disk', () =
     ];
     for (const source of attempts) {
       const result = await engine.execute('readonly', source, MAX_ROWS);
-      expect(result.error, source).toMatch(/Chỉ|không được dùng|không được phép/);
+      expect(result.error, source).toMatch(/Chỉ|không được dùng|không được phép|SHARED NOUPDATE/);
     }
     expect((await engine.execute('readonly', 'SELECT COUNT(*) FROM region', MAX_ROWS)).resultSets[0].rows).toEqual([[records('region').length]]);
   });

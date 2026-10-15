@@ -330,6 +330,39 @@ describe('statements', () => {
     );
   });
 
+  it('turns USE with SUM, AVERAGE, CALCULATE and COUNT into aggregate SELECTs on the table', () => {
+    const source = [
+      'USE "d:\\luong\\bangluong.dbf"',
+      'SUM TP-LC*HSDC*2700000*DIEMP/9.8*CP/CCD*HSL, TCD FOR ALLTRIM(ma) = "A" TO x, y',
+      'COUNT FOR CO > 0',
+      'AVERAGE LC',
+      'CALCULATE CNT(), MAX(LC), STD(LC) FOR DIEM > 0',
+      'BROWSE FIELDS ma FOR LC > 1',
+      'USE nv ALIAS n',
+      'COUNT',
+    ].join('\n');
+    // The expressions and the FOR condition render exactly as they would inside a SELECT.
+    const formula = sql('SELECT TP-LC*HSDC*2700000*DIEMP/9.8*CP/CCD*HSL FROM t').slice('SELECT '.length, -' FROM t'.length);
+    const where = sql('SELECT * FROM t WHERE ALLTRIM(ma) = "A"').split(' WHERE ')[1];
+    const result = convertFoxPro(source);
+    expect(result.errors).toEqual([]);
+    expect(result.sql).toBe(
+      [
+        `SELECT SUM(${formula}) AS sum1, SUM(TCD) AS sum2 FROM bangluong WHERE ${where}`,
+        'SELECT COUNT(*) AS so_dong FROM bangluong WHERE CO > 0',
+        'SELECT AVG(LC) AS average1 FROM bangluong',
+        'SELECT COUNT(*) AS calculate1, MAX(LC) AS calculate2, STDEV(LC) AS calculate3 FROM bangluong WHERE DIEM > 0',
+        'SELECT ma FROM bangluong WHERE LC > 1',
+        'SELECT COUNT(*) AS so_dong FROM n',
+      ].join(';\n'),
+    );
+    expect(result.currentTable).toBe('n');
+    expect(convertFoxPro('SUM a').errors[0].message).toMatch(/USE bảng/);
+    expect(convertFoxPro('USE t\nSUM').errors[0].message).toMatch(/liệt kê cột/);
+    expect(convertFoxPro('USE t\nSUM a NEXT 5', { currentTable: 'x' }).warnings[0].message).toMatch(/NEXT/);
+    expect(convertFoxPro('COUNT', { currentTable: 'luong' }).sql).toBe('SELECT COUNT(*) AS so_dong FROM luong');
+  });
+
   it('spells a cursor the same way wherever it is used, whatever case was typed', () => {
     expect(sql('SELECT * FROM nv INTO CURSOR curLuong\nSELECT CURLUONG.ma FROM curLuong c, CurLuong d')).toBe(
       'DROP TABLE IF EXISTS #curluong;\nSELECT * INTO #curluong FROM nv;\nSELECT #curluong.ma FROM #curluong c, #curluong d',
