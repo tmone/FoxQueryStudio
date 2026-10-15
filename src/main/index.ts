@@ -77,7 +77,7 @@ void app.whenReady().then(() => {
   setupMenu(() => mainWindow);
   setupConnectionIpc(() => mainWindow, connections, SHIPPED_VFP, sideConfig.openOnStart);
   setupUpdater(() => mainWindow);
-  setupJournalIpc();
+  setupJournalIpc(sideConfig.bookmarks);
   createWindow();
 });
 

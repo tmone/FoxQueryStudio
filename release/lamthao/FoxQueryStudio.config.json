@@ -1,0 +1,31 @@
+{
+  "vfpPath": "vfp9/vfp9.exe",
+  "openOnStart": [],
+  "bookmarks": [
+    {
+      "name": "Kiểm tra tiền công phép (TP)",
+      "language": "foxpro",
+      "sql": "* Thay bangluong bằng tên bảng lương của tháng, CONGCHEDO bằng cột (hay số) công chế độ của đơn vị.\n* Kết quả 0: công thức đúng. Khác 0: tab Thông báo đưa sẵn câu SELECT liệt kê các dòng lệch.\nUSE bangluong\nSUM TP-LC*HSDC*2700000*DIEMP/9.8*CP/CONGCHEDO*HSL"
+    },
+    {
+      "name": "Kiểm tra tiền làm đêm (TCD)",
+      "language": "foxpro",
+      "sql": "* Thay bangluong bằng tên bảng lương của tháng, CONGCHEDO bằng cột (hay số) công chế độ của đơn vị.\n* Kết quả 0: công thức đúng. Khác 0: tab Thông báo đưa sẵn câu SELECT liệt kê các dòng lệch.\nUSE bangluong\nSUM TCD-LC*HSDC*2700000*CD/26*0.35*HSTN"
+    },
+    {
+      "name": "Kiểm tra tiền theo FTN (TTT)",
+      "language": "foxpro",
+      "sql": "* Thay bangluong bằng tên bảng lương của tháng, CONGCHEDO bằng cột (hay số) công chế độ của đơn vị.\n* Kết quả 0: công thức đúng. Khác 0: tab Thông báo đưa sẵn câu SELECT liệt kê các dòng lệch.\nUSE bangluong\nSUM TTT-FTN/100*2700000*NC1/CONGCHEDO*HSTN"
+    },
+    {
+      "name": "Kiểm tra tiền lương sản phẩm (TIEN1)",
+      "language": "foxpro",
+      "sql": "* Thay bangluong bằng tên bảng lương của tháng, CONGCHEDO bằng cột (hay số) công chế độ của đơn vị.\n* Kết quả 0: công thức đúng. Khác 0: tab Thông báo đưa sẵn câu SELECT liệt kê các dòng lệch.\nUSE bangluong\nSUM TIEN1-LC*HSDC*DIEM*NC1/CONGCHEDO*HS"
+    },
+    {
+      "name": "Kiểm tra tiền lương khuyến khích (THUONG)",
+      "language": "foxpro",
+      "sql": "* Thay bangluong bằng tên bảng lương của tháng, CONGCHEDO bằng cột (hay số) công chế độ của đơn vị.\n* Kết quả 0: công thức đúng. Khác 0: tab Thông báo đưa sẵn câu SELECT liệt kê các dòng lệch.\nUSE bangluong\nSUM THUONG-LC*HSDC*DIEM*(CONGCHEDO-CO-CTD-CDE)/CONGCHEDO*HSTG"
+    }
+  ]
+}

@@ -6,7 +6,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 const userData = mkdtempSync(join(tmpdir(), 'fqs-journal-'));
 vi.mock('electron', () => ({ app: { getPath: () => userData }, ipcMain: { handle: () => undefined } }));
 
-const { clearHistory, listBookmarks, listHistory, recordRun, removeBookmark, saveBookmark, trimHistory } = await import('../src/main/journal');
+const { clearHistory, listBookmarks, listHistory, recordRun, removeBookmark, saveBookmark, seedBookmarks, trimHistory } = await import('../src/main/journal');
 
 afterAll(() => rmSync(userData, { recursive: true, force: true }));
 
@@ -42,5 +42,15 @@ describe('query journal on disk', () => {
     expect(() => saveBookmark({ name: '  ', language: 'tsql', sql: 'x' })).toThrow();
     removeBookmark(a.id);
     expect(listBookmarks().map((b) => b.name)).toEqual(['Khách']);
+  });
+
+  it('adds the bookmarks a kit ships once, leaving ones of the same name alone', () => {
+    const seeds = [
+      { name: 'Khách', language: 'tsql' as const, sql: 'SELECT 2' },
+      { name: 'Kiểm tra công phép', language: 'foxpro' as const, sql: 'USE bangluong\nSUM TP-LC*2' },
+    ];
+    expect(seedBookmarks(seeds)).toBe(1);
+    expect(listBookmarks().map((b) => [b.name, b.sql])).toEqual([['Khách', 'SELECT * FROM customers'], ['Kiểm tra công phép', 'USE bangluong\nSUM TP-LC*2']]);
+    expect(seedBookmarks(seeds)).toBe(0);
   });
 });

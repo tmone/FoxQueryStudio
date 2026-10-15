@@ -92,8 +92,20 @@ export function removeBookmark(id: string): void {
   writeBookmarks(readBookmarks().filter((b) => b.id !== id));
 }
 
-export function setupJournalIpc(): void {
+/**
+ * Adds the bookmarks a kit ships, skipping names the user already has (theirs may have
+ * been edited), so a kit can hand over its standard checks without touching the rest.
+ */
+export function seedBookmarks(seeds: Pick<Bookmark, 'name' | 'language' | 'sql'>[]): number {
+  const have = new Set(readBookmarks().map((b) => b.name.toLowerCase()));
+  const missing = seeds.filter((s) => !have.has(s.name.toLowerCase()));
+  for (const seed of missing) saveBookmark(seed);
+  return missing.length;
+}
+
+export function setupJournalIpc(seeds: Pick<Bookmark, 'name' | 'language' | 'sql'>[] = []): void {
   trimHistory();
+  seedBookmarks(seeds);
   ipcMain.handle('journal:history', (_e, filter?: HistoryFilter) => listHistory(filter));
   ipcMain.handle('journal:record', (_e, run: Omit<HistoryEntry, 'id' | 'at'>) => recordRun(run));
   ipcMain.handle('journal:clearHistory', () => clearHistory());
