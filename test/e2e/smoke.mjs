@@ -187,6 +187,10 @@ try {
     assert.equal(await language(), 'FOX-SQL');
     let text = await run('SELECT ALLTRIM(customerid) AS ma, ALLTRIM(country) AS nuoc FROM customers WHERE country = "Ger" ORDER BY 1 INTO CURSOR duc');
     assert.doesNotMatch(text, /Lỗi/);
+    // A named cursor shows its rows right away, in the results pane, and still stays for later statements.
+    assert.match(text, /Bảng 1: 11 dòng/);
+    assert.equal(await page.$eval('.output-tabs > button.active', (b) => b.dataset.pane), 'results');
+    assert.equal((await visibleRows()).length, 11);
     text = await run('SELECT COUNT(*) AS n FROM duc');
     assert.match(text, /Bảng 1: 1 dòng/);
     assert.deepEqual(await visibleRows(), [['11']]);
@@ -228,6 +232,45 @@ try {
     ok('runs T-SQL on the FoxPro database by turning it into FoxPro');
     await page.screenshot({ path: OUT_DIR + '/smoke-local-tsql.png' });
 
+    // Every run went to the history on disk; the list shows them newest first and finds them by text.
+    await page.keyboard.press('Control+Shift+H');
+    await page.waitForSelector('#history-list .journal-item');
+    const historyTitles = () => page.$$eval('#history-list .journal-item .sql', (items) => items.map((i) => i.textContent));
+    assert.equal((await historyTitles())[0], 'SELECT * FROM khong_co_bang');
+    assert.equal(await page.$eval('#history-list .journal-item', (i) => i.classList.contains('failed')), true, 'the failed run is marked');
+    assert.match(await page.$eval('#history-list .journal-item:nth-child(2) .outcome', (i) => i.textContent), /^1 dòng/);
+    await page.fill('#history-filter', 'country = "Ger"');
+    await page.waitForFunction(() => document.querySelectorAll('#history-list .journal-item').length === 1);
+    assert.match((await historyTitles())[0], /^SELECT ALLTRIM\(customerid\) AS ma/);
+    const history = readFileSync(join(workDir, 'user-data', 'history.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    assert.equal(history.length, 5);
+    assert.match(history[0].connection, /^FoxPro \(.*northwind\.dbc\)$/);
+    assert.equal(history[4].error.includes('khong_co_bang'), true);
+    await page.screenshot({ path: OUT_DIR + '/smoke-history.png' });
+    ok('keeps every run in the history on disk and finds it again');
+
+    // A history entry reopens in a new tab on the same connection; Ctrl+D keeps the tab's query as a bookmark.
+    const tabsBefore = await page.$$eval('#tabs .tab', (t) => t.length);
+    await page.dblclick('#history-list .journal-item');
+    assert.equal(await page.$$eval('#tabs .tab', (t) => t.length), tabsBefore + 1, 'the entry opened in a new tab');
+    assert.match(await editorText(), /INTO CURSOR duc/);
+    await page.keyboard.press('Control+D');
+    await page.waitForSelector('#bookmark-dialog[open]');
+    await page.fill('#bookmark-dialog input[name=name]', 'Khách Đức');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('#bookmark-list .journal-item');
+    assert.deepEqual(await page.$$eval('#bookmark-list .journal-item .name', (items) => items.map((i) => i.textContent)), ['Khách Đức']);
+    await page.keyboard.press('Control+W');
+    await page.dblclick('#bookmark-list .journal-item');
+    await page.keyboard.press('F5');
+    await page.waitForFunction(() => /Bảng 1: 11 dòng/.test(document.getElementById('pane-messages').textContent), null, { timeout: 60_000 });
+    assert.deepEqual((await visibleRows()).slice(0, 2), [['ALFKI', 'Germany'], ['BLAUS', 'Germany']]);
+    assert.deepEqual(JSON.parse(readFileSync(join(workDir, 'user-data', 'bookmarks.json'), 'utf8')).map((b) => b.name), ['Khách Đức']);
+    ok('bookmarks a query and runs it again from the list');
+    await page.screenshot({ path: OUT_DIR + '/smoke-journal.png' });
+    await page.click('.side-tabs > button[data-side=objects]');
+
+    await page.keyboard.press('Control+W');
     await page.keyboard.press('Control+W');
     await page.keyboard.press('Control+W');
     // Completion knows the tables and columns of the open FoxPro database, in both languages.

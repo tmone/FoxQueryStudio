@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { AppApi, AppCommand } from '../shared/commands';
+import type { JournalApi } from '../shared/journal';
 import type { RegistryApi } from '../shared/registry';
 import type { DbApi } from '../shared/types';
 import type { UpdateApi, UpdateStatus } from '../shared/update';
@@ -19,6 +20,16 @@ const registry: RegistryApi = {
   list: () => ipcRenderer.invoke('registry:list'),
   startup: () => ipcRenderer.invoke('registry:startup'),
   remove: (id) => ipcRenderer.invoke('registry:remove', id),
+};
+
+const journal: JournalApi = {
+  history: (filter) => ipcRenderer.invoke('journal:history', filter),
+  record: (entry) => ipcRenderer.invoke('journal:record', entry),
+  clearHistory: () => ipcRenderer.invoke('journal:clearHistory'),
+  historyPath: () => ipcRenderer.invoke('journal:historyPath'),
+  bookmarks: () => ipcRenderer.invoke('journal:bookmarks'),
+  saveBookmark: (bookmark) => ipcRenderer.invoke('journal:saveBookmark', bookmark),
+  removeBookmark: (id) => ipcRenderer.invoke('journal:removeBookmark', id),
 };
 
 const updates: UpdateApi = {
@@ -51,3 +62,4 @@ contextBridge.exposeInMainWorld('db', api);
 contextBridge.exposeInMainWorld('app', appApi);
 contextBridge.exposeInMainWorld('registry', registry);
 contextBridge.exposeInMainWorld('updates', updates);
+contextBridge.exposeInMainWorld('journal', journal);

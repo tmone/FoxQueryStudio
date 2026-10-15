@@ -7,10 +7,13 @@ import { commandForShortcut, shortcutOf, type AppCommand } from '../../shared/co
 import { runFoxQuery, runOnFoxPro, runTsqlQuery } from '../../shared/run-query';
 import type { ConnectionInfo, ConnectionProfile, ExecuteResult, SchemaTable } from '../../shared/types';
 import { updateActionLabel, type UpdateStatus } from '../../shared/update';
+import { queryTitle } from '../../shared/journal';
 import { createCompareEditor, createEditor, createModel, LANGUAGE_ID, monaco, qualifiedName, setSchema, TSQL_LANGUAGE_ID } from './editor';
 import type { Registration } from '../../shared/registry';
 import { connectionLabel, createExplorer, registrationLabel, type ExplorerConnection } from './explorer';
 import { renderGrid } from './grid';
+import { createJournal } from './journal';
+import type { Bookmark } from '../../shared/journal';
 
 const MAX_ROWS = 5000;
 const PREVIEW_ROWS = 100;
@@ -106,6 +109,14 @@ const sourceTitle = el('source-title');
 const translationTab = el<HTMLButtonElement>('tab-translation');
 const exportButton = el<HTMLButtonElement>('btn-export');
 const compareTitle = el('compare-title');
+const sideButtons = [...document.querySelectorAll<HTMLButtonElement>('.side-tabs > button')];
+const bookmarkDialog = el<HTMLDialogElement>('bookmark-dialog');
+const bookmarkForm = el<HTMLFormElement>('bookmark-form');
+const bookmarkPreview = el('bookmark-preview');
+const bookmarkTitle = el('bookmark-title');
+
+/** The three lists of the side pane. */
+type SideName = 'objects' | 'history' | 'bookmarks';
 
 const editor = createEditor(el('editor'));
 const compareEditor = createCompareEditor(el('compare-editor'));
@@ -427,6 +438,22 @@ async function run(): Promise<void> {
     renderCompare();
     explorer.setCursors(tab.connectionId, tab.database, tab.cursors, tab.currentCursor);
   }
+  if (result || errors.length) void recordRun(tab, connection, source, result, errors);
+}
+
+/** Writes the run to the history on disk, whatever its outcome, and refreshes the list when it is in view. */
+async function recordRun(tab: Tab, connection: Connection, source: string, result: ExecuteResult | undefined, errors: Diagnostic[]): Promise<void> {
+  const error = result?.error ?? (errors.length ? formatDiagnostics('Lỗi', errors).join('\n') : undefined);
+  await window.journal.record({
+    connection: connectionLabel(connection),
+    database: tab.database,
+    language: tab.language,
+    sql: source,
+    elapsedMs: result?.elapsedMs ?? 0,
+    rows: error ? undefined : result?.resultSets.reduce((n, set) => n + set.rows.length, 0),
+    error,
+  });
+  if (currentSide() === 'history') void journal.refreshHistory();
 }
 
 // ---------- Translation ----------
@@ -883,8 +910,12 @@ const HANDLERS: Record<AppCommand, () => void> = {
   'query.run': () => void run(),
   'query.switchLanguage': switchLanguage,
   'query.exportExcel': () => void exportExcel(),
+  'query.bookmark': () => void saveBookmark(activeSource(), active.language),
   'view.compare': toggleCompare,
   'view.explorer': () => document.body.classList.toggle('hide-explorer'),
+  'view.objects': () => showSide('objects'),
+  'view.history': () => showSide('history'),
+  'view.bookmarks': () => showSide('bookmarks'),
   'view.output': toggleOutput,
   'view.results': () => showOutput('results'),
   'view.messages': () => showOutput('messages'),
@@ -892,6 +923,70 @@ const HANDLERS: Record<AppCommand, () => void> = {
   'help.checkUpdates': () => void window.updates.check(),
   'help.about': () => void window.app.about(),
 };
+
+// ---------- Side pane: objects, history, bookmarks ----------
+
+const currentSide = (): SideName => (sideButtons.find((b) => b.classList.contains('active'))?.dataset.side as SideName | undefined) ?? 'objects';
+
+function showSide(name: SideName): void {
+  document.body.classList.remove('hide-explorer');
+  for (const button of sideButtons) button.classList.toggle('active', button.dataset.side === name);
+  for (const side of ['objects', 'history', 'bookmarks'] as const) el(`side-${side}`).hidden = side !== name;
+  if (name === 'history') void journal.refreshHistory();
+  if (name === 'bookmarks') void journal.refreshBookmarks();
+}
+
+/** Opens a journal entry in a new tab, on the connection it ran on when that one is still open. */
+function openFromJournal(sql: string, language: QueryLanguage, connection?: string, database?: string, runIt = false): void {
+  const target = connection ? connections.find((c) => connectionLabel(c) === connection) : undefined;
+  newTab(sql, undefined, language, target?.id ?? currentConnectionId, target ? database : currentDatabase);
+  if (runIt) void run();
+}
+
+/** Asks for a name in the bookmark dialog; resolves with it, or undefined when cancelled. */
+function askBookmarkName(title: string, sql: string, initial = ''): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    bookmarkTitle.textContent = title;
+    bookmarkPreview.textContent = sql;
+    const input = bookmarkForm.elements.namedItem('name') as HTMLInputElement;
+    input.value = initial;
+    const done = () => {
+      bookmarkDialog.removeEventListener('close', done);
+      resolve(bookmarkDialog.returnValue === 'save' ? input.value.trim() || undefined : undefined);
+    };
+    bookmarkDialog.addEventListener('close', done);
+    bookmarkDialog.showModal();
+    input.select();
+  });
+}
+
+async function saveBookmark(sql: string, language: QueryLanguage, existing?: Bookmark): Promise<void> {
+  if (!sql.trim()) {
+    report(active, 'Chưa có lệnh nào để lưu làm dấu trang.');
+    return;
+  }
+  const name = await askBookmarkName(existing ? 'Đổi tên dấu trang' : 'Lưu dấu trang', sql, existing?.name ?? queryTitle(sql, 60));
+  if (!name) return;
+  await window.journal.saveBookmark({ id: existing?.id, name, language, sql });
+  showSide('bookmarks');
+}
+
+/** The active tab's selection when there is one, else its whole text. */
+function activeSource(): string {
+  const selection = editor.getSelection();
+  return selection && !selection.isEmpty() ? active.model.getValueInRange(selection) : active.model.getValue();
+}
+
+const journal = createJournal({
+  open: (sql, language, connection, database, runIt) => openFromJournal(sql, language, connection, database, runIt),
+  bookmark: (sql, language) => void saveBookmark(sql, language),
+  rename: (bookmark) => void saveBookmark(bookmark.sql, bookmark.language, bookmark),
+  removeBookmark: (id) => void window.journal.removeBookmark(id).then(() => journal.refreshBookmarks()),
+  clearHistory: () => {
+    if (window.confirm('Xóa toàn bộ lịch sử truy vấn đã lưu?')) void window.journal.clearHistory().then(() => journal.refreshHistory());
+  },
+  copy: (text) => void navigator.clipboard.writeText(text),
+});
 
 // ---------- Splitters ----------
 
@@ -919,7 +1014,7 @@ window.addEventListener(
   'keydown',
   (event) => {
     const command = commandForShortcut(shortcutOf(event));
-    if (!command || connectDialog.open) return;
+    if (!command || connectDialog.open || bookmarkDialog.open) return;
     event.preventDefault();
     event.stopPropagation();
     HANDLERS[command]();
@@ -928,6 +1023,10 @@ window.addEventListener(
 );
 
 el('connect-cancel').addEventListener('click', () => connectDialog.close());
+el('bookmark-cancel').addEventListener('click', () => bookmarkDialog.close('cancel'));
+bookmarkForm.addEventListener('submit', () => bookmarkDialog.close('save'));
+for (const button of sideButtons) button.addEventListener('click', () => showSide(button.dataset.side as SideName));
+el('btn-history-file').addEventListener('click', () => void window.journal.historyPath().then((path) => report(active, `Tệp lịch sử: ${path}`)));
 connectForm.addEventListener('submit', (e) => void submitConnection(e));
 explorerFilter.addEventListener('input', () => explorer.setFilter(explorerFilter.value));
 for (const button of languageButtons) {

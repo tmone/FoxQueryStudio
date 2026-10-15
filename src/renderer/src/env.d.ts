@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import type { AppApi } from '../../shared/commands';
+import type { JournalApi } from '../../shared/journal';
 import type { RegistryApi } from '../../shared/registry';
 import type { DbApi } from '../../shared/types';
 import type { UpdateApi } from '../../shared/update';
@@ -10,5 +11,6 @@ declare global {
     registry: RegistryApi;
     app: AppApi & { about(): Promise<void> };
     updates: UpdateApi;
+    journal: JournalApi;
   }
 }

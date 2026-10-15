@@ -13,12 +13,16 @@ export type AppCommand =
   | 'query.run'
   | 'query.switchLanguage'
   | 'query.exportExcel'
+  | 'query.bookmark'
   | 'view.explorer'
   | 'view.output'
   | 'view.results'
   | 'view.messages'
   | 'view.tsql'
   | 'view.compare'
+  | 'view.objects'
+  | 'view.history'
+  | 'view.bookmarks'
   | 'help.checkUpdates'
   | 'help.about';
 
@@ -42,12 +46,16 @@ export const COMMANDS: Record<AppCommand, CommandInfo> = {
   'query.run': { label: 'Chạy', shortcut: 'F5' },
   'query.switchLanguage': { label: 'Đổi ngôn ngữ FOX-SQL / T-SQL', shortcut: 'Ctrl+Shift+L' },
   'query.exportExcel': { label: 'Xuất kết quả ra Excel…', shortcut: 'Ctrl+Shift+E' },
-  'view.explorer': { label: 'Cây đối tượng', shortcut: 'F8' },
+  'query.bookmark': { label: 'Lưu dấu trang…', shortcut: 'Ctrl+D' },
+  'view.explorer': { label: 'Ẩn / hiện khung bên', shortcut: 'F8' },
   'view.output': { label: 'Khung kết quả', shortcut: 'Ctrl+R' },
   'view.results': { label: 'Kết quả' },
   'view.messages': { label: 'Thông báo' },
   'view.tsql': { label: 'Bản dịch' },
   'view.compare': { label: 'So sánh hai cột', shortcut: 'Ctrl+Shift+D' },
+  'view.objects': { label: 'Đối tượng' },
+  'view.history': { label: 'Lịch sử truy vấn', shortcut: 'Ctrl+Shift+H' },
+  'view.bookmarks': { label: 'Dấu trang', shortcut: 'Ctrl+Shift+B' },
   'help.checkUpdates': { label: 'Kiểm tra cập nhật' },
   'help.about': { label: 'Giới thiệu' },
 };
@@ -58,9 +66,9 @@ export type MenuEntry = AppCommand | '-' | `role:${'undo' | 'redo' | 'cut' | 'co
 export const MENUS: { label: string; items: MenuEntry[] }[] = [
   { label: '&Tệp', items: ['file.new', 'file.open', '-', 'file.save', 'file.saveAs', '-', 'file.closeTab', '-', 'role:quit'] },
   { label: '&Sửa', items: ['role:undo', 'role:redo', '-', 'role:cut', 'role:copy', 'role:paste', 'role:selectAll'] },
-  { label: '&Xem', items: ['view.explorer', 'view.output', '-', 'view.results', 'view.messages', 'view.tsql', 'view.compare', '-', 'role:zoomIn', 'role:zoomOut', 'role:resetZoom', 'role:togglefullscreen'] },
+  { label: '&Xem', items: ['view.explorer', 'view.objects', 'view.history', 'view.bookmarks', 'view.output', '-', 'view.results', 'view.messages', 'view.tsql', 'view.compare', '-', 'role:zoomIn', 'role:zoomOut', 'role:resetZoom', 'role:togglefullscreen'] },
   { label: '&Kết nối', items: ['connection.connect', 'connection.disconnect', '-', 'connection.refresh', '-', 'local.open', 'local.vfpPath'] },
-  { label: 'Truy &vấn', items: ['query.run', '-', 'query.switchLanguage', '-', 'query.exportExcel'] },
+  { label: 'Truy &vấn', items: ['query.run', '-', 'query.switchLanguage', '-', 'query.exportExcel', '-', 'query.bookmark'] },
   { label: 'Trợ &giúp', items: ['help.checkUpdates', '-', 'help.about'] },
 ];
 

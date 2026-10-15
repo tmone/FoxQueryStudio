@@ -5,6 +5,7 @@ import { createConnections } from './connections';
 import { createDatabase, tediousConfig } from './db';
 import { createFoxEngine } from './fox-engine';
 import { locateVfp, setupConnectionIpc } from './local-db';
+import { setupJournalIpc } from './journal';
 import { setupMenu } from './menu';
 import { programFolder, readSideConfig } from './side-config';
 import { setupUpdater } from './updater';
@@ -76,6 +77,7 @@ void app.whenReady().then(() => {
   setupMenu(() => mainWindow);
   setupConnectionIpc(() => mainWindow, connections, SHIPPED_VFP, sideConfig.openOnStart);
   setupUpdater(() => mainWindow);
+  setupJournalIpc();
   createWindow();
 });
 

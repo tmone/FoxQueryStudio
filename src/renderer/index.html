@@ -22,15 +22,31 @@
       <select id="tab-database" class="tool-select" title="Cơ sở dữ liệu của tab (như SSMS)" aria-label="Cơ sở dữ liệu của tab" hidden></select>
       <button id="btn-run" type="button" class="tool labelled run" data-command="query.run" title="Chạy (F5)" disabled><svg viewBox="0 0 16 16" aria-hidden="true"><path class="fill" d="M4 2.5l9 5.5-9 5.5z"/></svg><span>Chạy</span></button>
       <span class="divider"></span>
+      <button id="btn-bookmark" type="button" class="tool" data-command="query.bookmark" title="Lưu truy vấn này làm dấu trang (Ctrl+D)" aria-label="Lưu dấu trang"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5l1.7 3.5 3.8.5-2.8 2.7.7 3.8L8 11.2 4.6 13l.7-3.8L2.5 6.5l3.8-.5z"/></svg></button>
       <button id="btn-toggle-compare" type="button" class="tool" data-command="view.compare" title="So sánh FOX-SQL và T-SQL (Ctrl+Shift+D)" aria-label="So sánh FOX-SQL và T-SQL" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 2.5h5.5v11h-5.5zM9 2.5h5.5v11h-5.5z"/><path d="M3 5.5h2.5M3 8h2.5M10.5 5.5h2.5M10.5 8h2.5M10.5 10.5h2.5"/></svg></button>
       <span class="spacer"></span>
     </header>
 
     <main class="workspace">
       <aside class="explorer">
-        <div class="pane-title">Cây đối tượng</div>
-        <input id="explorer-filter" type="search" placeholder="Lọc bảng và view theo tên" aria-label="Lọc bảng và view" />
-        <div id="explorer-tree" class="tree"></div>
+        <div class="side-tabs" role="tablist" aria-label="Khung bên">
+          <button type="button" data-side="objects" class="active" role="tab" title="Cây đối tượng (F8)">Đối tượng</button>
+          <button type="button" data-side="history" role="tab" title="Các lệnh đã chạy (Ctrl+Shift+H)">Lịch sử</button>
+          <button type="button" data-side="bookmarks" role="tab" title="Truy vấn hay dùng (Ctrl+Shift+B)">Dấu trang</button>
+        </div>
+        <div id="side-objects" class="side-pane">
+          <input id="explorer-filter" type="search" placeholder="Lọc bảng và view theo tên" aria-label="Lọc bảng và view" />
+          <div id="explorer-tree" class="tree"></div>
+        </div>
+        <div id="side-history" class="side-pane" hidden>
+          <input id="history-filter" type="search" placeholder="Tìm trong lệnh, kết nối, CSDL" aria-label="Tìm trong lịch sử" />
+          <div id="history-list" class="journal-list" role="list"></div>
+          <div class="side-foot"><span id="history-count"></span><span class="spacer"></span><button type="button" id="btn-history-file" class="link" title="Mở thư mục chứa tệp lịch sử">Tệp lịch sử</button></div>
+        </div>
+        <div id="side-bookmarks" class="side-pane" hidden>
+          <input id="bookmark-filter" type="search" placeholder="Tìm dấu trang theo tên hoặc lệnh" aria-label="Tìm dấu trang" />
+          <div id="bookmark-list" class="journal-list" role="list"></div>
+        </div>
       </aside>
       <div id="split-explorer" class="splitter vertical" role="separator" aria-orientation="vertical"></div>
 
@@ -103,6 +119,18 @@
         <div class="actions">
           <button type="button" id="connect-cancel">Hủy</button>
           <button type="submit" class="primary" id="connect-submit">Kết nối</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="bookmark-dialog">
+      <form id="bookmark-form" method="dialog">
+        <h2 id="bookmark-title">Lưu dấu trang</h2>
+        <label>Tên <input name="name" required maxlength="120" placeholder="vd. Đơn hàng chưa giao theo khách" /></label>
+        <pre id="bookmark-preview" class="preview"></pre>
+        <div class="actions">
+          <button type="button" id="bookmark-cancel">Hủy</button>
+          <button type="submit" class="primary">Lưu</button>
         </div>
       </form>
     </dialog>
