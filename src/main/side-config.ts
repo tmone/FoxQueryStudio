@@ -48,7 +48,8 @@ export function readSideConfig(folder: string): SideConfig {
   const file = join(folder, FILE);
   if (existsSync(file)) {
     try {
-      raw = JSON.parse(readFileSync(file, 'utf8'));
+      // Notepad and PowerShell may save the file with a byte-order mark, which JSON does not allow.
+      raw = JSON.parse(readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
     } catch {
       raw = {};
     }

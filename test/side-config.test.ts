@@ -27,6 +27,11 @@ describe('settings next to the program', () => {
     ]);
   });
 
+  it('reads a file saved with a byte-order mark', () => {
+    writeFileSync(join(folder, 'FoxQueryStudio.config.json'), '\uFEFF' + JSON.stringify({ bookmarks: [{ name: 'A', sql: 'SELECT 1' }] }));
+    expect(readSideConfig(folder).bookmarks.map((b) => b.name)).toEqual(['A']);
+  });
+
   it('has no bookmarks without the file', () => {
     expect(readSideConfig(join(folder, 'nowhere')).bookmarks).toEqual([]);
   });
