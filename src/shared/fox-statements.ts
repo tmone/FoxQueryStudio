@@ -125,8 +125,9 @@ export function toRunnable(source: string): RunnableStatement[] {
     const use = /^\s*USE\b(.*)$/is.exec(statement);
     if (use) {
       const rest = use[1].trim();
-      // A table is only ever opened read-only; USE on its own closes the current one.
-      return { statement: rest ? `USE ${rest}${/\bNOUPDATE\b/i.test(rest) ? '' : ' SHARED NOUPDATE'}` : 'USE' };
+      // A table is only ever opened shared and read-only, in a free work area (SELECT 0) so the
+      // cursor that was current is not closed in its place; USE on its own closes the current one.
+      return { statement: rest ? `SELECT 0\nUSE ${rest}${/\bNOUPDATE\b/i.test(rest) ? '' : ' SHARED NOUPDATE'}` : 'USE' };
     }
     const calc = /^\s*(SUM|AVERAGE|CALCULATE|COUNT)\b(.*)$/is.exec(statement);
     if (calc) return toCalc(calc[1].toUpperCase(), calc[2]);
@@ -156,7 +157,7 @@ export function readOnlyViolation(statement: string): string | undefined {
   if (!/^\s*(SELECT|BROWSE|USE|SUM|COUNT|AVERAGE|CALCULATE)\b/i.test(statement)) {
     return 'Chỉ chạy được SELECT, BROWSE, USE, SUM, COUNT, AVERAGE và CALCULATE; công cụ này chỉ đọc dữ liệu.';
   }
-  if (/^\s*USE\b.*\bEXCLUSIVE\b/is.test(statement)) return 'USE … EXCLUSIVE khóa bảng với người khác; công cụ này chỉ mở bảng SHARED NOUPDATE.';
+  if (/(^|\n)\s*USE\b.*\bEXCLUSIVE\b/i.test(statement)) return 'USE … EXCLUSIVE khóa bảng với người khác; công cụ này chỉ mở bảng SHARED NOUPDATE.';
   const sideEffect = SIDE_EFFECT_FUNCTIONS.exec(statement);
   if (sideEffect) return `Hàm ${sideEffect[1].toUpperCase()}() có thể ghi dữ liệu hoặc chạy mã nên không được dùng trong truy vấn.`;
   if (MACRO.test(statement)) return 'Không dùng macro (&) trong truy vấn.';

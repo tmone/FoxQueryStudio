@@ -407,10 +407,15 @@ button.version.failed {
   font-weight: 400;
 }
 
-/* The connection and database new queries run on. */
+/* The connection and database new queries run on, and the table the active tab works on. */
 .tree .server.current > summary,
-.tree .database.current > summary {
+.tree .database.current > summary,
+.tree .table.current > summary {
   color: var(--accent);
+}
+
+.tree .table.current > summary .label {
+  font-weight: 600;
 }
 
 .tree ul {

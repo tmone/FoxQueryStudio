@@ -9,7 +9,7 @@ import type { ConnectionInfo, ConnectionProfile, ExecuteResult, SchemaTable } fr
 import { updateActionLabel, type UpdateStatus } from '../../shared/update';
 import { queryTitle } from '../../shared/journal';
 import { prepareFoxBatch } from '../../shared/fox-prepare';
-import { createCompareEditor, createEditor, createModel, LANGUAGE_ID, monaco, qualifiedName, setSchema, TSQL_LANGUAGE_ID } from './editor';
+import { createCompareEditor, createEditor, createModel, displayName, LANGUAGE_ID, monaco, qualifiedName, setSchema, TSQL_LANGUAGE_ID } from './editor';
 import type { Registration } from '../../shared/registry';
 import { connectionLabel, createExplorer, registrationLabel, type ExplorerConnection } from './explorer';
 import { renderGrid } from './grid';
@@ -157,6 +157,7 @@ const explorer = createExplorer(el('explorer-tree'), {
     newTab(`SELECT TOP ${PREVIEW_ROWS} * FROM ${qualifiedName(table)} ORDER BY 1`, undefined, undefined, connectionId, database);
     void run();
   },
+  useTable: (connectionId, database, table) => void useTable(connectionId, database, table),
   loadDatabase: (connectionId, database) => void loadDatabase(connectionId, database),
   connect: (registrationId) => void connectSaved(registrationId),
   remove: (registrationId) => void removeRegistration(registrationId),
@@ -176,6 +177,7 @@ function renderStatus(): void {
   statusConnection.textContent = !connection ? 'Tab chưa gắn kết nối' : connection.kind === 'foxpro' ? `FoxPro: ${connection.localPath}` : `${connection.user} @ ${connection.server} / ${active.database ?? ''}`;
   renderDatabaseSelect(connection);
   statusCursor.textContent = active.currentCursor ? `Cursor: ${active.currentCursor}` : active.currentTable ? `Bảng: ${active.currentTable}` : '';
+  statusCursor.title = active.currentTable ? 'Bảng làm việc của tab: SUM, COUNT, AVERAGE, CALCULATE, BROWSE chạy trên bảng này khi không nêu tên' : 'Cursor đang chọn của tab';
 
   const result = active.result;
   const current = result?.resultSets[active.activeSet];
@@ -234,6 +236,7 @@ function activate(tab: Tab): void {
   renderCompare();
   setSchema(lookups(tab).tables);
   explorer.setCursors(tab.connectionId, tab.database, tab.cursors, tab.currentCursor);
+  explorer.setCurrentTable(tab.connectionId, tab.database, tab.currentTable);
 }
 
 const languageOfFile = (path: string): QueryLanguage => (path.toLowerCase().endsWith(LANGUAGES.tsql.extension) ? 'tsql' : 'foxpro');
@@ -464,6 +467,32 @@ async function run(): Promise<void> {
     explorer.setCursors(tab.connectionId, tab.database, tab.cursors, tab.currentCursor);
   }
   if (result || errors.length) void recordRun(tab, connection, source, result, errors);
+}
+
+/**
+ * Makes the table the active tab's work area, as a click on a table does in FoxPro: on a FoxPro
+ * database the tab's session really opens it (USE … SHARED NOUPDATE), on SQL Server the
+ * converter reads it as the FROM of SUM, COUNT, BROWSE… Either way no name is needed in the command.
+ */
+async function useTable(connectionId: string, database: string, table: SchemaTable): Promise<void> {
+  const tab = active;
+  if (tab.running) return;
+  bindTab(tab, connectionId, database);
+  const connection = findConnection(connectionId);
+  if (!connection) return;
+  if (connection.kind === 'foxpro') {
+    const result = await window.db.execute(connectionId, tab.id, `USE ${table.name}`, 1, database);
+    if (result.error) {
+      report(tab, `Không mở được bảng ${table.name}: ${result.error}`);
+      return;
+    }
+    tab.currentTable = table.name.toLowerCase();
+  } else {
+    tab.currentTable = qualifiedName(table);
+  }
+  tab.currentCursor = undefined;
+  renderStatus();
+  explorer.setCurrentTable(connectionId, database, displayName(table));
 }
 
 /** Writes the run to the history on disk, whatever its outcome, and refreshes the list when it is in view. */

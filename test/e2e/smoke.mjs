@@ -200,6 +200,16 @@ try {
     assert.deepEqual(await visibleRows(), [['ALFKI', 'Germany'], ['BLAUS', 'Germany'], ['DRACD', 'Germany']]);
     ok('runs FoxPro source in FoxPro itself and keeps its cursor between runs');
 
+    // A click on a table in the tree makes it the tab's work area, as USE does: commands need no table name.
+    await page.click('#explorer-tree .table:has(> summary:has-text("orders")) > summary');
+    await page.waitForFunction(() => document.getElementById('status-cursor').textContent === 'Bảng: orders');
+    assert.equal(await page.$eval('#explorer-tree .table.current > summary .label', (l) => l.textContent), 'orders');
+    text = await run('SUM freight FOR orderid = 10248');
+    assert.match(text, /Bảng 1: 1 dòng/);
+    assert.deepEqual(await visibleRows(), [['32.38']]);
+    text = await run('SELECT TOP 3 ma, nuoc FROM duc ORDER BY ma');
+    ok('runs a nameless command on the table clicked in the tree');
+
     // Export the result to Excel, with the save dialog answered by the test.
     const xlsx = join(workDir, 'duc.xlsx');
     await app.evaluate(({ dialog }, path) => (dialog.showSaveDialog = async () => ({ canceled: false, filePath: path })), xlsx);
@@ -275,10 +285,10 @@ try {
     await page.waitForFunction(() => document.querySelectorAll('#history-list .journal-item').length === 1);
     assert.match((await historyTitles())[0], /^SELECT ALLTRIM\(customerid\) AS ma/);
     const history = readFileSync(join(workDir, 'user-data', 'history.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
-    assert.equal(history.length, 6);
+    assert.equal(history.length, 8);
     assert.match(history[0].connection, /^FoxPro \(.*northwind\.dbc\)$/);
-    assert.equal(history[4].error.includes('khong_co_bang'), true);
-    assert.match(history[5].sql, /^USE bangluong\nSUM TP-LC\*HSDC\*2700000\*DIEMP\/9\.8\*CP\/\(25\)\*HSL$/);
+    assert.equal(history[6].error.includes('khong_co_bang'), true);
+    assert.match(history[7].sql, /^USE bangluong\nSUM TP-LC\*HSDC\*2700000\*DIEMP\/9\.8\*CP\/\(25\)\*HSL$/);
     await page.screenshot({ path: OUT_DIR + '/smoke-history.png' });
     ok('keeps every run in the history on disk and finds it again');
 

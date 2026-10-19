@@ -30,6 +30,8 @@ export interface ExplorerActions {
   remove(registrationId: string): void;
   /** Opens a new query on the connection and database that reads the first rows of the table. */
   selectTop(connectionId: string, database: string, table: SchemaTable): void;
+  /** Makes the table the one the active tab works on, as USE does: SUM, COUNT, BROWSE… need no name then. */
+  useTable(connectionId: string, database: string, table: SchemaTable): void;
   /** Makes the connection (and database, when given) the one new queries use. */
   select(connectionId: string, database?: string): void;
   /** Loads the tables of a database the first time its node is opened. */
@@ -114,8 +116,10 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
 
   function tableNode(connectionId: string, database: string, table: SchemaTable): HTMLDetailsElement {
     const { details, summary } = node(table.isView ? 'view' : 'table', table.isView ? 'view' : 'table', displayName(table));
-    summary.title = 'Nhấp đúp để chèn tên; nhấp phải để xem thêm lệnh';
+    summary.title = 'Nhấp để chọn làm bảng làm việc của tab (như USE); nhấp đúp để chèn tên; nhấp phải để xem thêm lệnh';
+    summary.addEventListener('click', () => actions.useTable(connectionId, database, table));
     summary.addEventListener('dblclick', () => actions.insertText(qualifiedName(table)));
+    details.dataset.table = `${connectionId}\n${database}\n${displayName(table).toLowerCase()}`;
     summary.addEventListener('contextmenu', (event) =>
       showContextMenu(event, [
         { label: 'Xem 100 dòng đầu', icon: 'preview', run: () => actions.selectTop(connectionId, database, table) },
@@ -333,6 +337,12 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
       render();
     },
     /** Cursors change after almost every run, so they are redrawn without touching the rest of the tree. */
+    /** Marks the table the active tab works on. */
+    setCurrentTable(connectionId: string | undefined, database: string | undefined, name: string | undefined): void {
+      const key = connectionId && name ? `${connectionId}\n${database ?? ''}\n${name.toLowerCase()}` : undefined;
+      for (const details of host.querySelectorAll<HTMLDetailsElement>('.table')) details.classList.toggle('current', details.dataset.table === key);
+    },
+
     setCursors(connectionId: string | undefined, database: string | undefined, names: string[], current: string | undefined): void {
       cursors = names;
       currentCursor = current;

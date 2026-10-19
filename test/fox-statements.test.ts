@@ -13,8 +13,8 @@ describe('runnable statements', () => {
 
   it('opens tables read-only with USE and reads figures back from SUM, AVERAGE, CALCULATE and COUNT', () => {
     expect(toRunnable('USE luong\nUSE d:\\data\\luong.dbf ALIAS l NOUPDATE\nUSE')).toEqual([
-      { statement: 'USE luong SHARED NOUPDATE' },
-      { statement: 'USE d:\\data\\luong.dbf ALIAS l NOUPDATE' },
+      { statement: 'SELECT 0\nUSE luong SHARED NOUPDATE' },
+      { statement: 'SELECT 0\nUSE d:\\data\\luong.dbf ALIAS l NOUPDATE' },
       { statement: 'USE' },
     ]);
     expect(toRunnable('SUM TP-LC*HSDC*2700000*DIEMP/9.8*CP/CCD*HSL, TCD FOR ma = "A" TO x, y')).toEqual([
