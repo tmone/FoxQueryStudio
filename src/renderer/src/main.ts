@@ -9,7 +9,7 @@ import type { ConnectionInfo, ConnectionProfile, ExecuteResult, SchemaTable } fr
 import { updateActionLabel, type UpdateStatus } from '../../shared/update';
 import { queryTitle } from '../../shared/journal';
 import { prepareFoxBatch } from '../../shared/fox-prepare';
-import { execTemplate } from '../../shared/procedures';
+import { cursorNameFor, execStatement, execTemplate } from '../../shared/procedures';
 import { createCompareEditor, createEditor, createModel, displayName, LANGUAGE_ID, monaco, qualifiedName, setSchema, TSQL_LANGUAGE_ID } from './editor';
 import type { Registration } from '../../shared/registry';
 import { connectionLabel, createExplorer, registrationLabel, type ExplorerConnection } from './explorer';
@@ -120,8 +120,26 @@ const bookmarkTitle = el('bookmark-title');
 const paramDialog = el<HTMLDialogElement>('param-dialog');
 const paramForm = el<HTMLFormElement>('param-form');
 const paramName = el('param-name');
-/** Values given to parameters (lower-cased phrase → value), offered again at the next run. */
-const parameterValues = new Map<string, string>();
+/** Values given to parameters (lower-cased name → value), offered again at the next run and kept across starts. */
+const PARAMETER_STORE = 'fqs.parameters';
+const parameterValues = new Map<string, string>(loadParameterValues());
+
+function loadParameterValues(): [string, string][] {
+  try {
+    return Object.entries(JSON.parse(localStorage.getItem(PARAMETER_STORE) ?? '{}') as Record<string, string>);
+  } catch {
+    return [];
+  }
+}
+
+function rememberParameter(name: string, value: string): void {
+  parameterValues.set(name.toLowerCase(), value);
+  try {
+    localStorage.setItem(PARAMETER_STORE, JSON.stringify(Object.fromEntries(parameterValues)));
+  } catch {
+    // Browser storage can be unavailable; the value still holds for this run of the program.
+  }
+}
 
 /** The three lists of the side pane. */
 type SideName = 'objects' | 'history' | 'bookmarks';
@@ -162,6 +180,7 @@ const explorer = createExplorer(el('explorer-tree'), {
   runProcedure: (connectionId, database, procedure) => {
     newTab(execTemplate(qualifiedName(procedure), procedure.parameters ?? [], 'kq'), undefined, 'tsql', connectionId, database);
   },
+  useProcedure: (connectionId, database, procedure) => void useProcedure(connectionId, database, procedure),
   loadDatabase: (connectionId, database) => void loadDatabase(connectionId, database),
   connect: (registrationId) => void connectSaved(registrationId),
   remove: (registrationId) => void removeRegistration(registrationId),
@@ -443,7 +462,11 @@ async function run(): Promise<void> {
     renderStatus();
   }
   setMarkers(tab, errors, warnings);
+  finishRun(tab, connection, source, result, errors, lines);
+}
 
+/** Shows a run's outcome in the tab (results or messages) and writes it to the history. */
+function finishRun(tab: Tab, connection: Connection, source: string, result: ExecuteResult | undefined, errors: Diagnostic[], lines: string[]): void {
   tab.activeSet = 0;
   tab.result = result;
   tab.hasOutput = true;
@@ -498,6 +521,46 @@ async function useTable(connectionId: string, database: string, table: SchemaTab
   tab.currentCursor = undefined;
   renderStatus();
   explorer.setCurrentTable(connectionId, database, displayName(table));
+}
+
+/**
+ * What a customer does with a payroll procedure: click it, answer its parameters, and get its
+ * result as the tab's cursor, so the xBase checks that follow (SUM, COUNT, BROWSE…) need no
+ * EXEC at all. The procedure runs rolled back; the values given are remembered per parameter.
+ */
+async function useProcedure(connectionId: string, database: string, procedure: SchemaTable): Promise<void> {
+  const tab = active;
+  if (tab.running) return;
+  bindTab(tab, connectionId, database);
+  const connection = findConnection(connectionId);
+  if (!connection) return;
+  const values: { name: string; value: string }[] = [];
+  for (const parameter of procedure.parameters ?? []) {
+    const value = await askParameter(`${parameter.name} (${parameter.display})`, `${procedure.name}.${parameter.name}`);
+    if (value === undefined) return;
+    values.push({ name: parameter.name, value });
+  }
+  const statement = execStatement(qualifiedName(procedure), values);
+  const cursor = cursorNameFor(procedure.name);
+  tab.running = true;
+  renderStatus();
+  let result: ExecuteResult;
+  try {
+    result = await window.db.callProcedure(connectionId, tab.id, statement, MAX_ROWS, database, cursor);
+  } catch (e) {
+    result = { resultSets: [], messages: [], error: ipcErrorMessage(e), truncated: false, elapsedMs: 0 };
+  } finally {
+    tab.running = false;
+    renderStatus();
+  }
+  const lines = [`Đã chạy ${displayName(procedure)} (mọi thay đổi của thủ tục được rollback).`];
+  if (!result.error) {
+    tab.cursors = [...new Set([...tab.cursors, cursor])];
+    tab.currentCursor = cursor;
+    tab.currentTable = undefined;
+    lines.push(`Kết quả là bảng làm việc "${cursor}": gõ SUM, COUNT, BROWSE FOR … hoặc SELECT … FROM ${cursor} rồi nhấn F5.`);
+  }
+  finishRun(tab, connection, `${statement} INTO CURSOR ${cursor}`, result, [], lines);
 }
 
 /** Writes the run to the history on disk, whatever its outcome, and refreshes the list when it is in view. */
@@ -1023,15 +1086,15 @@ function askBookmarkName(title: string, sql: string, initial = ''): Promise<stri
 }
 
 /** Asks for a parameter's value, offering the one given last time; resolves undefined when cancelled. */
-function askParameter(name: string): Promise<string | undefined> {
+function askParameter(name: string, key = name): Promise<string | undefined> {
   return new Promise((resolve) => {
     paramName.textContent = name;
     const input = paramForm.elements.namedItem('value') as HTMLInputElement;
-    input.value = parameterValues.get(name.toLowerCase()) ?? '';
+    input.value = parameterValues.get(key.toLowerCase()) ?? '';
     const done = () => {
       paramDialog.removeEventListener('close', done);
       const value = paramDialog.returnValue === 'run' ? input.value.trim() : '';
-      if (value) parameterValues.set(name.toLowerCase(), value);
+      if (value) rememberParameter(key, value);
       resolve(value || undefined);
     };
     paramDialog.addEventListener('close', done);

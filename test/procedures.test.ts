@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { execTemplate, parseExec, splitExecSegments, tsqlViolation, withoutExecLines } from '../src/shared/procedures';
+import { cursorNameFor, execStatement, execTemplate, parseExec, splitExecSegments, sqlLiteral, tsqlViolation, withoutExecLines } from '../src/shared/procedures';
 
 const batch = ["EXEC dbo.LAMTHAO_PROC_PAYROLL N'2025090000031', N'421A121E', '2025/08' INTO CURSOR bl", 'SUM BasicSalary - CoeffBasicSal * 2700000 FOR DowCode = "2025/08"', 'execute sp_other;', 'SELECT COUNT(*) FROM bl'].join('\n');
 
@@ -21,6 +21,24 @@ describe('EXEC lines in a batch', () => {
   it('become comments for the converters, on the same lines', () => {
     expect(withoutExecLines(batch, '*').split('\n')[0]).toBe("* EXEC dbo.LAMTHAO_PROC_PAYROLL N'2025090000031', N'421A121E', '2025/08' INTO CURSOR bl");
     expect(withoutExecLines(batch, '--').split('\n')[2]).toBe('-- execute sp_other;');
+  });
+
+  it('are built from values typed in a dialog, quoted as T-SQL needs', () => {
+    expect(sqlLiteral('2025/08')).toBe("N'2025/08'");
+    expect(sqlLiteral(" 421A121E-385E-4FF6-9C1E-4B2018F46E0B ")).toBe("N'421A121E-385E-4FF6-9C1E-4B2018F46E0B'");
+    expect(sqlLiteral('26')).toBe('26');
+    expect(sqlLiteral('-1.5')).toBe('-1.5');
+    expect(sqlLiteral("N'đã có'")).toBe("N'đã có'");
+    expect(sqlLiteral("'x'")).toBe("'x'");
+    expect(sqlLiteral('')).toBe('NULL');
+    expect(sqlLiteral('null')).toBe('NULL');
+    expect(sqlLiteral("O'Brien")).toBe("N'O''Brien'");
+    expect(execStatement('dbo.LAMTHAO_PROC_PAYROLL', [{ name: '@UserID', value: '2025090000031' }, { name: '@reportID', value: '421A121E' }, { name: '@DowCode', value: '2025/08' }])).toBe(
+      "EXEC dbo.LAMTHAO_PROC_PAYROLL @UserID = 2025090000031, @reportID = N'421A121E', @DowCode = N'2025/08'",
+    );
+    expect(execStatement('dbo.P', [])).toBe('EXEC dbo.P');
+    expect(cursorNameFor('LAMTHAO_PROC_PAYROLL')).toBe('lamthao_proc_payroll');
+    expect(cursorNameFor('1 Báo cáo')).toBe('_1_b_o_c_o');
   });
 
   it('get a template with the parameters to fill in', () => {

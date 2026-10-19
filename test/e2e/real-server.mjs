@@ -246,6 +246,19 @@ try {
   await page.click('.output-tabs > button[data-pane=results]');
   await page.screenshot({ path: `${OUT_DIR}/real-final.png` });
 
+  // ---- A click on a procedure runs it (rolled back) and makes its result the tab's cursor ----
+  await page.fill('#explorer-filter', 'mHCSLS_SpGetPayrollDow');
+  await page.keyboard.press('Control+N');
+  await page.locator('#explorer-tree .procedure:has(> summary:has-text("dbo.mHCSLS_SpGetPayrollDow")) > summary').first().click();
+  await page.waitForFunction(() => document.getElementById('status-cursor').textContent === 'Cursor: mhcsls_spgetpayrolldow', null, { timeout: 60_000 });
+  assert.match(await messages(), /Đã chạy dbo\.mHCSLS_SpGetPayrollDow.*rollback/);
+  const dowRows = sqlcmd('EXEC dbo.mHCSLS_SpGetPayrollDow').length;
+  assert.equal(await page.$$eval('#pane-results .grid-row', (rows) => rows.length), Math.min(dowRows, 5000));
+  text = await run('COUNT');
+  assert.deepEqual(await visibleRows(), [[String(dowRows)]]);
+  await page.fill('#explorer-filter', '');
+  step('runs a clicked procedure, rolled back, and answers a nameless xBase command on its result', `${dowRows} rows`);
+
   // ---- Tabs run independently: a slow query in one does not hold the other -------------
   await page.keyboard.press('Control+N');
   await page.keyboard.press('Control+Shift+L');

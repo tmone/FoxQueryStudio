@@ -35,6 +35,8 @@ export interface ExplorerActions {
   useTable(connectionId: string, database: string, table: SchemaTable): void;
   /** Opens a new tab with `EXEC proc @p = … INTO CURSOR kq` ready to fill in. */
   runProcedure(connectionId: string, database: string, procedure: SchemaTable): void;
+  /** Asks for the parameters, runs the procedure (rolled back) and makes its result the active tab's cursor. */
+  useProcedure(connectionId: string, database: string, procedure: SchemaTable): void;
   /** Makes the connection (and database, when given) the one new queries use. */
   select(connectionId: string, database?: string): void;
   /** Loads the tables of a database the first time its node is opened. */
@@ -142,11 +144,12 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
   function procedureNode(connectionId: string, database: string, procedure: SchemaTable): HTMLDetailsElement {
     const { details, summary } = node('table', 'procedure', displayName(procedure));
     details.classList.add('procedure');
-    summary.title = 'Nhấp đúp để mở tab EXEC … INTO CURSOR; nhấp phải để xem thêm lệnh';
-    summary.addEventListener('dblclick', () => actions.runProcedure(connectionId, database, procedure));
+    summary.title = 'Nhấp để chạy thủ tục (hỏi tham số) và lấy kết quả làm bảng làm việc của tab; nhấp phải để xem thêm lệnh';
+    summary.addEventListener('click', () => actions.useProcedure(connectionId, database, procedure));
     summary.addEventListener('contextmenu', (event) =>
       showContextMenu(event, [
-        { label: 'Chạy (EXEC … INTO CURSOR, có rollback)', icon: 'run', run: () => actions.runProcedure(connectionId, database, procedure) },
+        { label: 'Chạy với tham số, kết quả làm bảng làm việc', icon: 'run', run: () => actions.useProcedure(connectionId, database, procedure) },
+        { label: 'Mở tab EXEC … INTO CURSOR để tự điền', icon: 'openTab', run: () => actions.runProcedure(connectionId, database, procedure) },
         { label: 'Chèn lệnh EXEC vào truy vấn', icon: 'insertName', run: () => actions.insertText(execTemplate(qualifiedName(procedure), procedure.parameters ?? [])) },
       ]),
     );

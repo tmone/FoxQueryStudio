@@ -86,6 +86,26 @@ export function tsqlViolation(source: string): { line: number; message: string }
   return undefined;
 }
 
+/**
+ * A parameter value as typed in a dialog, as T-SQL: a number stays a number, NULL stays NULL,
+ * something already quoted (N'…', '…', 0x…) or a variable stays as it is, anything else is a string.
+ */
+export function sqlLiteral(value: string): string {
+  const text = value.trim();
+  if (!text || /^null$/i.test(text)) return 'NULL';
+  if (/^-?\d+(\.\d+)?$/.test(text) || /^(N?'.*'|0x[0-9A-Fa-f]*|@\w+)$/s.test(text)) return text;
+  return `N'${text.replace(/'/g, "''")}'`;
+}
+
+/** The EXEC for a procedure with the values given for its parameters, in their order. */
+export function execStatement(qualifiedName: string, parameters: { name: string; value: string }[]): string {
+  const args = parameters.map((p) => `${p.name} = ${sqlLiteral(p.value)}`).join(', ');
+  return `EXEC ${qualifiedName}${args ? ` ${args}` : ''}`;
+}
+
+/** The cursor a clicked procedure's result goes to: its name, as a FoxPro alias. */
+export const cursorNameFor = (procedureName: string): string => procedureName.toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/^(\d)/, '_$1');
+
 /** `EXEC dbo.Name @p1 = , @p2 = ` as a starting point for the user. */
 export function execTemplate(qualifiedName: string, parameters: { name: string }[], cursor?: string): string {
   const args = parameters.map((p) => `${p.name} = `).join(', ');
