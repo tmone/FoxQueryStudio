@@ -114,8 +114,12 @@ try {
   await page.fill('#explorer-filter', 'HCSEM_Employees');
   await page.locator('#explorer-tree .table > summary', { hasText: /^dbo\.HCSEM_Employees$/ }).click();
   // Columns are added when the node's toggle event fires, shortly after the click.
-  await page.waitForSelector('#explorer-tree .table[open] li');
-  const shownColumns = await page.locator('#explorer-tree .table[open] li').count();
+  await page.waitForSelector('#explorer-tree .table[open] li.column');
+  const shownColumns = await page.locator('#explorer-tree .table[open] li.column').count();
+  // SSMS-style detail after the name, and the key/index folders under the table.
+  assert.match(await page.locator('#explorer-tree .table[open] li.column').first().textContent(), /\((PK, )?\w+(\(\d+\))?, (not )?null\)$/);
+  assert.ok((await page.locator('#explorer-tree .table[open] li.key').count()) >= 1, 'the table lists at least one key');
+  assert.ok((await page.locator('#explorer-tree .table[open] li.index').count()) >= 1, 'the table lists at least one index');
   const [[columnCount]] = sqlcmd("SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'HCSEM_Employees'");
   assert.equal(shownColumns, Number(columnCount));
   await page.fill('#explorer-filter', '');
@@ -208,7 +212,7 @@ try {
   await page.click('#btn-new');
   assert.equal(await page.locator('.tab').count(), 2);
   text = await run('BROWSE');
-  assert.match(text, /Chưa có cursor nào/);
+  assert.match(text, /Chưa có bảng hay cursor nào/);
   text = await run('SELECT TOP 3 EmployeeCode FROM HCSEM_Employees ORDER BY EmployeeCode');
   expected = sqlcmd('SELECT TOP 3 EmployeeCode FROM HCSEM_Employees ORDER BY EmployeeCode');
   assert.deepEqual(await visibleRows(), expected);

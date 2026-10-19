@@ -135,9 +135,14 @@ describe.skipIf(!isLocalDbAvailable())('application database service and query f
         'dbo.BangLuong', 'dbo.NhanVien', 'dbo.PhongBan', 'dbo.vw_LuongThang (view)',
       ]);
       const columns = Object.fromEntries(schema.find((t) => t.name === 'NhanVien')!.columns.map((c) => [c.name, c]));
-      expect(columns.HoTen).toEqual({ name: 'HoTen', dataType: 'nvarchar', maxLength: 100, nullable: false });
-      expect(columns.GhiChu).toMatchObject({ dataType: 'nvarchar', maxLength: -1, nullable: true });
-      expect(columns.LuongCoBan).toMatchObject({ dataType: 'decimal', nullable: false });
+      expect(columns.HoTen).toEqual({ name: 'HoTen', dataType: 'nvarchar', display: 'nvarchar(100)', maxLength: 100, nullable: false });
+      expect(columns.GhiChu).toMatchObject({ dataType: 'nvarchar', display: 'nvarchar(max)', maxLength: -1, nullable: true });
+      expect(columns.LuongCoBan).toMatchObject({ dataType: 'decimal', display: 'decimal(18,2)', nullable: false });
+      // Keys and indexes, as the object explorer lists them under a table.
+      const nhanVien = schema.find((t) => t.name === 'NhanVien')!;
+      expect(columns.MaNV.keyRole).toBe('PK');
+      expect(nhanVien.keys!.map((k) => [k.kind, k.columns.join(',')])).toContainEqual(['PK', 'MaNV']);
+      expect(nhanVien.indexes!.find((i) => i.primary)).toMatchObject({ unique: true, clustered: true, columns: ['MaNV'] });
     });
 
     it('maps column types to the kinds FoxPro would see', () => {

@@ -1,5 +1,5 @@
 import type { Registration } from '../../shared/registry';
-import type { ConnectionInfo, SchemaTable } from '../../shared/types';
+import type { ConnectionInfo, SchemaColumn, SchemaIndex, SchemaKey, SchemaTable } from '../../shared/types';
 import { displayName, qualifiedName } from './editor';
 import { closeContextMenu, icon, showContextMenu, type IconName } from './widgets';
 
@@ -123,20 +123,49 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
         { label: 'Chèn danh sách cột', icon: 'insertColumns', run: () => actions.insertText(table.columns.map((c) => c.name).join(', ')) },
       ]),
     );
-    // Columns are built on first expand to keep large schemas light.
+    // Columns, keys and indexes are built on first expand to keep large schemas light.
     details.addEventListener('toggle', () => {
       if (!details.open || details.querySelector('.folder')) return;
-      const folder = node('folder', 'folder', `Cột (${table.columns.length})`, true);
-      const list = document.createElement('ul');
-      for (const column of table.columns) {
-        const item = leaf('column', 'column', column.name, `${column.display ?? column.dataType}${column.nullable ? ', null' : ''}`);
-        item.addEventListener('dblclick', () => actions.insertText(column.name));
-        list.append(item);
-      }
-      folder.details.append(list);
-      details.append(folder.details);
+      details.append(columnsFolder(table), keysFolder(table.keys ?? []), indexesFolder(table.indexes ?? []));
     });
     return details;
+  }
+
+  /** `name (PK, nvarchar(150), not null)`, as the SSMS object explorer labels a column. */
+  function columnDetail(column: SchemaColumn): string {
+    const parts = [column.keyRole, column.display ?? column.dataType, column.nullable ? 'null' : 'not null'].filter(Boolean);
+    return `(${parts.join(', ')})`;
+  }
+
+  function columnsFolder(table: SchemaTable): HTMLDetailsElement {
+    const folder = node('folder', 'folder', `Cột (${table.columns.length})`, true);
+    const list = document.createElement('ul');
+    for (const column of table.columns) {
+      const item = leaf('column', column.keyRole === 'PK' ? 'key' : column.keyRole === 'FK' ? 'foreignKey' : 'column', column.name, columnDetail(column));
+      item.addEventListener('dblclick', () => actions.insertText(column.name));
+      list.append(item);
+    }
+    folder.details.append(list);
+    return folder.details;
+  }
+
+  function keysFolder(keys: SchemaKey[]): HTMLDetailsElement {
+    const folder = node('folder', 'folder', `Khóa (${keys.length})`);
+    const list = document.createElement('ul');
+    for (const key of keys) list.append(leaf('key', key.kind === 'FK' ? 'foreignKey' : 'key', key.name, `(${key.kind}: ${key.columns.join(', ')})`));
+    folder.details.append(list);
+    return folder.details;
+  }
+
+  function indexesFolder(indexes: SchemaIndex[]): HTMLDetailsElement {
+    const folder = node('folder', 'folder', `Chỉ mục (${indexes.length})`);
+    const list = document.createElement('ul');
+    for (const index of indexes) {
+      const kind = [index.primary ? 'PK' : index.unique ? 'Unique' : undefined, index.clustered ? 'Clustered' : 'Non-Clustered'].filter(Boolean).join(', ');
+      list.append(leaf('index', 'index', index.name, `(${kind}: ${index.columns.join(', ')})`));
+    }
+    folder.details.append(list);
+    return folder.details;
   }
 
   /** Draws the cursors of the active tab into the node that holds them. */

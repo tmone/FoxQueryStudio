@@ -203,8 +203,8 @@ FUNCTION fqs_cell(luV)
 ENDFUNC
 
 PROCEDURE fqs_schema
-  LOCAL lnTables, lnFiles, lnI, lnJ, lnFields, lcName
-  LOCAL ARRAY laTables[1], laFiles[1], laFields[1]
+  LOCAL lnTables, lnFiles, lnI, lnJ, lnFields, lnTags, lcName
+  LOCAL ARRAY laTables[1], laFiles[1], laFields[1], laTags[1]
   lnTables = 0
   IF !EMPTY(gcDatabase)
     lnTables = ADBOBJECTS(laTables, "TABLE")
@@ -229,6 +229,11 @@ PROCEDURE fqs_schema
     =FWRITE(gnOut, "#TBL|" + LOWER(lcName) + "|" + TRANSFORM(RECCOUNT("fqs_s")) + CHR(13) + CHR(10))
     FOR lnJ = 1 TO lnFields
       =FWRITE(gnOut, "#FLD|" + LOWER(laFields[lnJ, 1]) + "|" + laFields[lnJ, 2] + "|" + TRANSFORM(laFields[lnJ, 3]) + "|" + TRANSFORM(laFields[lnJ, 4]) + "|" + IIF(laFields[lnJ, 5], "1", "0") + CHR(13) + CHR(10))
+    ENDFOR
+    * Index tags of the structural .cdx: name, kind (PRIMARY, CANDIDATE, UNIQUE, REGULAR), key expression.
+    lnTags = ATAGINFO(laTags, "", "fqs_s")
+    FOR lnJ = 1 TO lnTags
+      =FWRITE(gnOut, "#IDX|" + LOWER(laTags[lnJ, 1]) + "|" + laTags[lnJ, 2] + "|" + STRCONV(LOWER(laTags[lnJ, 3]), 15) + CHR(13) + CHR(10))
     ENDFOR
     USE IN fqs_s
   ENDFOR
@@ -336,7 +341,19 @@ function parseAnswer(text: string): Answer {
     else if (tag === '#ROW') answer.resultSets[answer.resultSets.length - 1].rows.push(cells.map(parseCell));
     else if (tag === '#TRUNC') answer.truncated = true;
     else if (tag === '#ERR') answer.errors.push(decodeHex(cells[1]));
-    else if (tag === '#TBL') answer.tables.push({ schema: '', name: cells[0], isView: false, columns: [] });
+    else if (tag === '#TBL') answer.tables.push({ schema: '', name: cells[0], isView: false, columns: [], keys: [], indexes: [] });
+    else if (tag === '#IDX') {
+      const [name, kind, expression] = cells;
+      const table = answer.tables[answer.tables.length - 1];
+      const primary = kind === 'PRIMARY';
+      const key = decodeHex(expression);
+      table.indexes!.push({ name, unique: primary || kind === 'CANDIDATE' || kind === 'UNIQUE', clustered: false, primary, columns: [key] });
+      if (primary) {
+        table.keys!.push({ name, kind: 'PK', columns: [key] });
+        const column = table.columns.find((c) => c.name === key);
+        if (column) column.keyRole = 'PK';
+      }
+    }
     else if (tag === '#FLD') {
       const [name, type, length, decimals, nullable] = cells;
       const width = Number(length);

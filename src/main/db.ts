@@ -1,33 +1,81 @@
 import type sqlTypes from 'mssql';
 import { parseServerName } from '../shared/server-name';
-import type { CellValue, ConnectionProfile, DbBackend, ExecuteResult, ResultSet, SchemaTable } from '../shared/types';
+import type { SchemaKey, CellValue, ConnectionProfile, DbBackend, ExecuteResult, ResultSet, SchemaTable } from '../shared/types';
 
 /** The parts of the `mssql` package used here; `mssql/msnodesqlv8` offers the same ones. */
 export type SqlDriver = Pick<typeof sqlTypes, 'ConnectionPool'>;
 type Pool = sqlTypes.ConnectionPool;
 
+/** Three result sets: columns, key constraints, indexes — what the object explorer shows for a table. */
 export const SCHEMA_QUERY = `
-SELECT c.TABLE_SCHEMA, c.TABLE_NAME, t.TABLE_TYPE, c.COLUMN_NAME, c.DATA_TYPE, c.CHARACTER_MAXIMUM_LENGTH, c.IS_NULLABLE
+SELECT c.TABLE_SCHEMA, c.TABLE_NAME, t.TABLE_TYPE, c.COLUMN_NAME, c.DATA_TYPE, c.CHARACTER_MAXIMUM_LENGTH, c.NUMERIC_PRECISION, c.NUMERIC_SCALE, c.IS_NULLABLE
 FROM INFORMATION_SCHEMA.COLUMNS c
 JOIN INFORMATION_SCHEMA.TABLES t ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME
-ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION`;
+ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION;
+SELECT tc.TABLE_SCHEMA, tc.TABLE_NAME, tc.CONSTRAINT_NAME, tc.CONSTRAINT_TYPE, kcu.COLUMN_NAME
+FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu ON kcu.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA AND kcu.CONSTRAINT_NAME = tc.CONSTRAINT_NAME AND kcu.TABLE_NAME = tc.TABLE_NAME
+WHERE tc.CONSTRAINT_TYPE IN ('PRIMARY KEY', 'FOREIGN KEY', 'UNIQUE')
+ORDER BY tc.TABLE_SCHEMA, tc.TABLE_NAME, tc.CONSTRAINT_TYPE, tc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION;
+SELECT s.name AS TABLE_SCHEMA, o.name AS TABLE_NAME, i.name AS INDEX_NAME, i.type_desc AS INDEX_TYPE, i.is_unique AS IS_UNIQUE, i.is_primary_key AS IS_PRIMARY, c.name AS COLUMN_NAME
+FROM sys.indexes i
+JOIN sys.objects o ON o.object_id = i.object_id
+JOIN sys.schemas s ON s.schema_id = o.schema_id
+JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+WHERE i.name IS NOT NULL AND o.type IN ('U', 'V') AND ic.is_included_column = 0
+ORDER BY s.name, o.name, i.name, ic.key_ordinal`;
 
-/** Groups the rows of SCHEMA_QUERY into tables with their columns. */
-export function schemaFromRows(rows: Record<string, unknown>[]): SchemaTable[] {
+type Row = Record<string, unknown>;
+const KEY_KIND: Record<string, SchemaKey['kind']> = { 'PRIMARY KEY': 'PK', 'FOREIGN KEY': 'FK', UNIQUE: 'UQ' };
+
+/** The type as SSMS shows it: nvarchar(150), varchar(max), decimal(18,2), int. */
+export function displayType(row: Row): string {
+  const type = String(row.DATA_TYPE);
+  const length = row.CHARACTER_MAXIMUM_LENGTH as number | null;
+  if (length !== null && length !== undefined) return `${type}(${length === -1 ? 'max' : length})`;
+  if (['decimal', 'numeric'].includes(type)) return `${type}(${row.NUMERIC_PRECISION},${row.NUMERIC_SCALE})`;
+  return type;
+}
+
+/** Groups the result sets of SCHEMA_QUERY into tables with their columns, keys and indexes. */
+export function schemaFromRows(columns: Row[], keys: Row[] = [], indexes: Row[] = []): SchemaTable[] {
   const tables = new Map<string, SchemaTable>();
-  for (const row of rows) {
+  const tableOf = (row: Row) => tables.get(`${row.TABLE_SCHEMA}.${row.TABLE_NAME}`);
+  for (const row of columns) {
     const key = `${row.TABLE_SCHEMA}.${row.TABLE_NAME}`;
     let table = tables.get(key);
     if (!table) {
-      table = { schema: String(row.TABLE_SCHEMA), name: String(row.TABLE_NAME), isView: row.TABLE_TYPE === 'VIEW', columns: [] };
+      table = { schema: String(row.TABLE_SCHEMA), name: String(row.TABLE_NAME), isView: row.TABLE_TYPE === 'VIEW', columns: [], keys: [], indexes: [] };
       tables.set(key, table);
     }
     table.columns.push({
       name: String(row.COLUMN_NAME),
       dataType: String(row.DATA_TYPE),
+      display: displayType(row),
       maxLength: row.CHARACTER_MAXIMUM_LENGTH as number | null,
       nullable: row.IS_NULLABLE === 'YES',
     });
+  }
+  for (const row of keys) {
+    const table = tableOf(row);
+    if (!table) continue;
+    const name = String(row.CONSTRAINT_NAME);
+    const kind = KEY_KIND[String(row.CONSTRAINT_TYPE)];
+    let key = table.keys!.find((k) => k.name === name);
+    if (!key) table.keys!.push((key = { name, kind, columns: [] }));
+    key.columns.push(String(row.COLUMN_NAME));
+    const column = table.columns.find((c) => c.name === row.COLUMN_NAME);
+    // A column in both keys is shown as primary; SSMS does the same.
+    if (column && kind !== 'UQ' && column.keyRole !== 'PK') column.keyRole = kind;
+  }
+  for (const row of indexes) {
+    const table = tableOf(row);
+    if (!table) continue;
+    const name = String(row.INDEX_NAME);
+    let index = table.indexes!.find((i) => i.name === name);
+    if (!index) table.indexes!.push((index = { name, unique: !!row.IS_UNIQUE, clustered: String(row.INDEX_TYPE).toUpperCase() === 'CLUSTERED', primary: !!row.IS_PRIMARY, columns: [] }));
+    index.columns.push(String(row.COLUMN_NAME));
   }
   return [...tables.values()];
 }
@@ -161,8 +209,8 @@ export function createDatabase(driver: SqlDriver, buildConfig: (profile: Connect
     async loadSchema(database) {
       const pool = await openPool(requireProfile());
       try {
-        const { recordset } = await pool.request().batch(inDatabase(SCHEMA_QUERY, database));
-        return schemaFromRows(recordset);
+        const { recordsets } = (await pool.request().batch(inDatabase(SCHEMA_QUERY, database))) as unknown as { recordsets: Row[][] };
+        return schemaFromRows(recordsets[0] ?? [], recordsets[1], recordsets[2]);
       } finally {
         await pool.close();
       }

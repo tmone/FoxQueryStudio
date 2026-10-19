@@ -307,6 +307,29 @@ button.version.failed {
   background: var(--hover);
 }
 
+/* One line per object; the detail after the name is cut with an ellipsis, as in SSMS. */
+.tree li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree li .type {
+  color: var(--muted);
+}
+
+.tree .icon-key {
+  color: #c9a227;
+}
+
+.tree .icon-foreignKey {
+  color: #8a8a8a;
+}
+
+.tree .icon-index {
+  color: #4f6b8f;
+}
+
 /* Every level is indented from its parent, like the SSMS object explorer. */
 .tree .node .node {
   margin-left: 14px;
@@ -718,7 +741,8 @@ body.empty-output #split-output {
   display: flex;
 }
 
-.column {
+/* The editor columns; scoped so a tree leaf of class `column` is not laid out as one. */
+.editors .column {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -740,7 +764,7 @@ body.empty-output #split-output {
   color: var(--muted);
 }
 
-.column.compare {
+.editors .column.compare {
   display: none;
   border-left: 4px solid var(--border);
 }
@@ -964,6 +988,11 @@ dialog .actions {
 
 dialog p {
   margin: 0;
+}
+
+dialog p.hint {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 dialog pre.preview {

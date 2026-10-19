@@ -28,7 +28,10 @@ export type IconName =
   | 'run'
   | 'openTab'
   | 'copy'
-  | 'rename';
+  | 'rename'
+  | 'key'
+  | 'foreignKey'
+  | 'index';
 
 /** Line icons, 16×16, in the spirit of the SSMS object explorer; colour comes from CSS. */
 const ICONS: Record<IconName, string> = {
@@ -54,6 +57,9 @@ const ICONS: Record<IconName, string> = {
   openTab: '<path d="M2.5 3.5h11v9h-11z"/><path d="M2.5 6.5h11M5.5 3.5v3"/>',
   copy: '<rect x="5.5" y="5.5" width="8" height="8"/><path d="M10.5 5.5v-3h-8v8h3"/>',
   rename: '<path d="M3 12.5h10"/><path d="M4.5 10l6-6 1.5 1.5-6 6H4.5z"/>',
+  key: '<circle cx="5" cy="11" r="2.5"/><path d="M6.8 9.2l6.2-6.2M11 5l1.5 1.5M9 7l1.5 1.5"/>',
+  foreignKey: '<circle cx="5" cy="11" r="2.5"/><path d="M6.8 9.2l6.2-6.2M11 5l1.5 1.5M9 7l1.5 1.5"/><path d="M1.5 2.5h3v3" stroke-dasharray="1 1"/>',
+  index: '<path d="M3 3.5h10M3 6.5h10M3 9.5h6M3 12.5h4"/><path d="M11.5 9.5v4M10 12l1.5 1.5L13 12"/>',
 };
 
 export function icon(name: IconName): SVGElement {

@@ -135,6 +135,18 @@
       </form>
     </dialog>
 
+    <dialog id="param-dialog">
+      <form id="param-form" method="dialog">
+        <h2>Nhập giá trị</h2>
+        <label><span id="param-name"></span> <input name="value" required maxlength="200" placeholder="số, hoặc tên cột / biểu thức FoxPro" /></label>
+        <p class="hint">Cụm từ tiếng Việt trong lệnh được xem là tham số; giá trị được nhớ cho lần chạy sau.</p>
+        <div class="actions">
+          <button type="button" id="param-cancel">Hủy</button>
+          <button type="submit" class="primary">Chạy</button>
+        </div>
+      </form>
+    </dialog>
+
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

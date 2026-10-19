@@ -12,11 +12,29 @@ export interface ConnectionProfile {
 export interface SchemaColumn {
   name: string;
   dataType: string;
-  /** How the type is shown when it differs from dataType, e.g. a FoxPro field as C(40). */
+  /** How the type is shown when it differs from dataType, e.g. a FoxPro field as C(40) or nvarchar(150). */
   display?: string;
   /** Character length; -1 for the (max) types. */
   maxLength: number | null;
   nullable: boolean;
+  /** Part of the primary key, or of a foreign key, as the object explorer marks it. */
+  keyRole?: 'PK' | 'FK';
+}
+
+/** A primary, foreign or unique key constraint. */
+export interface SchemaKey {
+  name: string;
+  kind: 'PK' | 'FK' | 'UQ';
+  columns: string[];
+}
+
+export interface SchemaIndex {
+  name: string;
+  unique: boolean;
+  clustered: boolean;
+  primary: boolean;
+  /** Key columns in order; for FoxPro, the tag's expression. */
+  columns: string[];
 }
 
 export interface SchemaTable {
@@ -24,6 +42,8 @@ export interface SchemaTable {
   name: string;
   isView: boolean;
   columns: SchemaColumn[];
+  keys?: SchemaKey[];
+  indexes?: SchemaIndex[];
 }
 
 export type CellValue = string | number | boolean | null;

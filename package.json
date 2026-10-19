@@ -1,6 +1,6 @@
 {
   "name": "foxquerystudio",
-  "version": "0.2.19",
+  "version": "0.2.20",
   "description": "SSMS-like read-only query tool: write FoxPro-style SELECT, run it on SQL Server",
   "main": "./out/main/index.js",
   "private": true,
@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:mutation": "node scripts/mutation-check.mjs",
-    "fixtures": "node scripts/fetch-northwind.mjs",
+    "fixtures": "node scripts/fetch-northwind.mjs && node scripts/make-luong-sample.mjs",
     "e2e": "node test/e2e/smoke.mjs",
     "e2e:real": "node test/e2e/real-server.mjs",
     "e2e:update": "node test/e2e/update.mjs",

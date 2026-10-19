@@ -232,20 +232,53 @@ try {
     ok('runs T-SQL on the FoxPro database by turning it into FoxPro');
     await page.screenshot({ path: OUT_DIR + '/smoke-local-tsql.png' });
 
+    // A payroll check typed the customer's way: the phrase is asked for, the table is found, the wrong row offered.
+    if (!existsSync(resolve('test/fixtures/lamthao/bangluong.dbf'))) execFileSync(process.execPath, ['scripts/make-luong-sample.mjs'], { stdio: 'ignore' });
+    await app.evaluate(({ dialog }, path) => (dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })), resolve('test/fixtures/lamthao/bangluong.dbf'));
+    await page.keyboard.press('Control+Shift+O');
+    await page.waitForFunction(() => /Đã mở .*lamthao/.test(document.getElementById('pane-messages').textContent), null, { timeout: 120_000 });
+    await page.waitForFunction(() => document.querySelectorAll('#explorer-tree .server:not(.offline) .group').length === 2, null, { timeout: 60_000 });
+    await page.keyboard.press('Control+N');
+    if ((await language()) !== 'FOX-SQL') await page.keyboard.press('Control+Shift+L');
+    await page.click('#editor');
+    await page.keyboard.insertText('SUM TP-LC*HSDC*2700000*DIEMP/9.8*CP/Công chế độ*HSL');
+    await page.keyboard.press('F5');
+    await page.waitForSelector('#param-dialog[open]');
+    assert.equal(await page.textContent('#param-name'), 'Công chế độ');
+    await page.fill('#param-dialog input[name=value]', '25');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => /Thời gian/.test(document.getElementById('pane-messages').textContent), null, { timeout: 60_000 });
+    assert.deepEqual(await visibleRows(), [['1000']]);
+    text = await messages();
+    assert.match(text, /^Công chế độ = 25\nĐã mở bảng bangluong/);
+    assert.match(text, /SELECT \*, TP-LC\*HSDC\*2700000\*DIEMP\/9\.8\*CP\/\(25\)\*HSL AS lech FROM bangluong WHERE ABS\(/);
+    assert.equal(await page.textContent('#status-cursor'), 'Bảng: bangluong');
+    await page.screenshot({ path: OUT_DIR + '/smoke-payroll-check.png' });
+    ok("runs a payroll check as the customer types it: parameter asked, table found, wrong row offered");
+    await page.click('#btn-disconnect');
+    await page.waitForFunction(() => document.getElementById('status-state').textContent === '1 kết nối đang mở');
+    await page.click('#explorer-tree .server.offline:has(summary:has-text("lamthao")) > summary', { button: 'right' });
+    await page.click('.context-menu button:has-text("Xóa khỏi danh sách")');
+    await page.waitForFunction(() => document.querySelectorAll('#explorer-tree .server').length === 1);
+    await page.keyboard.press('Control+W');
+
     // Every run went to the history on disk; the list shows them newest first and finds them by text.
     await page.keyboard.press('Control+Shift+H');
     await page.waitForSelector('#history-list .journal-item');
     const historyTitles = () => page.$$eval('#history-list .journal-item .sql', (items) => items.map((i) => i.textContent));
-    assert.equal((await historyTitles())[0], 'SELECT * FROM khong_co_bang');
-    assert.equal(await page.$eval('#history-list .journal-item', (i) => i.classList.contains('failed')), true, 'the failed run is marked');
-    assert.match(await page.$eval('#history-list .journal-item:nth-child(2) .outcome', (i) => i.textContent), /^1 dòng/);
+    // The newest run is the payroll check, recorded as it ran: table opened, parameter in place.
+    assert.equal((await historyTitles())[0], 'USE bangluong');
+    assert.equal((await historyTitles())[1], 'SELECT * FROM khong_co_bang');
+    assert.equal(await page.$eval('#history-list .journal-item:nth-child(2)', (i) => i.classList.contains('failed')), true, 'the failed run is marked');
+    assert.match(await page.$eval('#history-list .journal-item:nth-child(3) .outcome', (i) => i.textContent), /^1 dòng/);
     await page.fill('#history-filter', 'country = "Ger"');
     await page.waitForFunction(() => document.querySelectorAll('#history-list .journal-item').length === 1);
     assert.match((await historyTitles())[0], /^SELECT ALLTRIM\(customerid\) AS ma/);
     const history = readFileSync(join(workDir, 'user-data', 'history.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
-    assert.equal(history.length, 5);
+    assert.equal(history.length, 6);
     assert.match(history[0].connection, /^FoxPro \(.*northwind\.dbc\)$/);
     assert.equal(history[4].error.includes('khong_co_bang'), true);
+    assert.match(history[5].sql, /^USE bangluong\nSUM TP-LC\*HSDC\*2700000\*DIEMP\/9\.8\*CP\/\(25\)\*HSL$/);
     await page.screenshot({ path: OUT_DIR + '/smoke-history.png' });
     ok('keeps every run in the history on disk and finds it again');
 
@@ -261,6 +294,10 @@ try {
     await page.waitForSelector('#bookmark-list .journal-item');
     assert.deepEqual(await page.$$eval('#bookmark-list .journal-item .name', (items) => items.map((i) => i.textContent)), ['Khách Đức']);
     await page.keyboard.press('Control+W');
+    // A bookmark carries no connection: it opens on the current one, which is made northwind again here.
+    await page.click('.side-tabs > button[data-side=objects]');
+    await page.click('#explorer-tree .server:not(.offline):has(summary:has-text("northwind")) > summary');
+    await page.click('.side-tabs > button[data-side=bookmarks]');
     await page.dblclick('#bookmark-list .journal-item');
     await page.keyboard.press('F5');
     await page.waitForFunction(() => /Bảng 1: 11 dòng/.test(document.getElementById('pane-messages').textContent), null, { timeout: 60_000 });

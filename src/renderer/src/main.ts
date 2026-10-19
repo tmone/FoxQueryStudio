@@ -8,6 +8,7 @@ import { runFoxQuery, runOnFoxPro, runTsqlQuery } from '../../shared/run-query';
 import type { ConnectionInfo, ConnectionProfile, ExecuteResult, SchemaTable } from '../../shared/types';
 import { updateActionLabel, type UpdateStatus } from '../../shared/update';
 import { queryTitle } from '../../shared/journal';
+import { prepareFoxBatch } from '../../shared/fox-prepare';
 import { createCompareEditor, createEditor, createModel, LANGUAGE_ID, monaco, qualifiedName, setSchema, TSQL_LANGUAGE_ID } from './editor';
 import type { Registration } from '../../shared/registry';
 import { connectionLabel, createExplorer, registrationLabel, type ExplorerConnection } from './explorer';
@@ -115,6 +116,11 @@ const bookmarkDialog = el<HTMLDialogElement>('bookmark-dialog');
 const bookmarkForm = el<HTMLFormElement>('bookmark-form');
 const bookmarkPreview = el('bookmark-preview');
 const bookmarkTitle = el('bookmark-title');
+const paramDialog = el<HTMLDialogElement>('param-dialog');
+const paramForm = el<HTMLFormElement>('param-form');
+const paramName = el('param-name');
+/** Values given to parameters (lower-cased phrase → value), offered again at the next run. */
+const parameterValues = new Map<string, string>();
 
 /** The three lists of the side pane. */
 type SideName = 'objects' | 'history' | 'bookmarks';
@@ -368,8 +374,26 @@ async function run(): Promise<void> {
   const executeOnServer = executeOn(connection.id, tab.database);
   const selection = editor.getSelection();
   const useSelection = selection !== null && !selection.isEmpty();
-  const source = useSelection ? tab.model.getValueInRange(selection) : tab.model.getValue();
+  let source = useSelection ? tab.model.getValueInRange(selection) : tab.model.getValue();
   const lineOffset = useSelection ? selection.startLineNumber - 1 : 0;
+  const notes: string[] = [];
+  if (connection.kind === 'foxpro' && tab.language === 'foxpro') {
+    // Checks are typed the way the customer writes them: phrases are asked for, the table is found
+    // among the database's tables, which may still be on their way right after the database opened.
+    if (connection.loading) {
+      report(tab, 'Đang nạp danh sách bảng của CSDL, hãy chạy lại sau giây lát.');
+      return;
+    }
+    await ensureLoaded(connection.id, tab.database);
+    const prepared = await prepareFoxBatch(source, { tables: lookups(tab).tables, hasWorkArea: !!(tab.currentTable || tab.currentCursor), ask: askParameter });
+    if (prepared.cancelled) return;
+    if (prepared.error) {
+      report(tab, prepared.error);
+      return;
+    }
+    source = prepared.source;
+    notes.push(...prepared.notes);
+  }
   const shift = (list: Diagnostic[]) => list.map((d) => ({ ...d, line: d.line + lineOffset }));
 
   const onExecute = () => {
@@ -380,7 +404,7 @@ async function run(): Promise<void> {
   let result: ExecuteResult | undefined;
   let errors: Diagnostic[] = [];
   let warnings: Diagnostic[];
-  const lines: string[] = [];
+  const lines: string[] = [...notes];
   try {
     if (connection.kind === 'foxpro') {
       // On a FoxPro database FoxPro is the engine: T-SQL has to translate before it can run.
@@ -964,6 +988,24 @@ function askBookmarkName(title: string, sql: string, initial = ''): Promise<stri
   });
 }
 
+/** Asks for a parameter's value, offering the one given last time; resolves undefined when cancelled. */
+function askParameter(name: string): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    paramName.textContent = name;
+    const input = paramForm.elements.namedItem('value') as HTMLInputElement;
+    input.value = parameterValues.get(name.toLowerCase()) ?? '';
+    const done = () => {
+      paramDialog.removeEventListener('close', done);
+      const value = paramDialog.returnValue === 'run' ? input.value.trim() : '';
+      if (value) parameterValues.set(name.toLowerCase(), value);
+      resolve(value || undefined);
+    };
+    paramDialog.addEventListener('close', done);
+    paramDialog.showModal();
+    input.select();
+  });
+}
+
 async function saveBookmark(sql: string, language: QueryLanguage, existing?: Bookmark): Promise<void> {
   if (!sql.trim()) {
     report(active, 'Chưa có lệnh nào để lưu làm dấu trang.');
@@ -1018,7 +1060,7 @@ window.addEventListener(
   'keydown',
   (event) => {
     const command = commandForShortcut(shortcutOf(event));
-    if (!command || connectDialog.open || bookmarkDialog.open) return;
+    if (!command || connectDialog.open || bookmarkDialog.open || paramDialog.open) return;
     event.preventDefault();
     event.stopPropagation();
     HANDLERS[command]();
@@ -1029,6 +1071,8 @@ window.addEventListener(
 el('connect-cancel').addEventListener('click', () => connectDialog.close());
 el('bookmark-cancel').addEventListener('click', () => bookmarkDialog.close('cancel'));
 bookmarkForm.addEventListener('submit', () => bookmarkDialog.close('save'));
+el('param-cancel').addEventListener('click', () => paramDialog.close('cancel'));
+paramForm.addEventListener('submit', () => paramDialog.close('run'));
 for (const button of sideButtons) button.addEventListener('click', () => showSide(button.dataset.side as SideName));
 el('btn-history-file').addEventListener('click', () => void window.journal.historyPath().then((path) => report(active, `Tệp lịch sử: ${path}`)));
 connectForm.addEventListener('submit', (e) => void submitConnection(e));

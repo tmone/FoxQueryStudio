@@ -2,6 +2,8 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadFoxDatabase, type FoxTable } from '../src/dbf/database';
+import { execFileSync } from 'node:child_process';
+import { prepareFoxBatch } from '../src/shared/fox-prepare';
 import { createFoxEngine, type FoxEngine } from '../src/main/fox-engine';
 import { columnKindResolver, columnWidthResolver } from '../src/shared/column-kind';
 import { runOnFoxPro, type QuerySession } from '../src/shared/run-query';
@@ -156,6 +158,41 @@ describe.skipIf(!available)('FoxPro engine for databases opened from disk', () =
     expect(await rows(session('cp'), '* Thay bảng lương của tháng rồi chạy && ghi chú có dấu\nSELECT COUNT(*) FROM region')).toEqual([[records('region').length]]);
     const refused = await engine.execute('cp', 'SELECT * FROM region WHERE regiondescription = "Miền Bắc"', MAX_ROWS);
     expect(refused.error).toMatch(/ngoài bảng mã Windows-1252.*Miền Bắc/);
+  });
+
+  it("runs a customer's payroll checks as typed: parameters asked for, table found, wrong row listed", async () => {
+    const folder = resolve('test', 'fixtures', 'lamthao');
+    // The sample table is generated, not stored: fixtures are not in the repository.
+    if (!existsSync(join(folder, 'bangluong.dbf'))) execFileSync(process.execPath, ['scripts/make-luong-sample.mjs'], { stdio: 'ignore' });
+    const payroll = createFoxEngine(() => VFP_EXE);
+    await payroll.openDatabase(join(folder, 'bangluong.dbf'));
+    const tables = await payroll.loadSchema();
+    const tab = session('lamthao');
+    const asked: string[] = [];
+    const typed = [
+      'SUM TP-LC*HSDC*2700000*DIEMP/9.8*CP/Công chế độ*HSL',
+      'SUM TCD-LC*HSDC*2700000*CD/26*0.35*HSTN',
+      'SUM TTT-FTN/100*2700000*NC1/Công chế độ*HSTN',
+      'SUM TIEN1-LC*HSDC*DIEM*NC1/Công chế độ*HS',
+      'SUM THUONG-LC*HSDC*DIEM*(Công chế độ-CO-CTD-CDE)/Công chế độ*HSTG',
+    ].join('\n');
+    const prepared = await prepareFoxBatch(typed, { tables, hasWorkArea: false, ask: async (name) => (asked.push(name), '25') });
+    expect(asked).toEqual(['Công chế độ']);
+    expect(prepared.notes).toEqual(['Công chế độ = 25', 'Đã mở bảng bangluong (có đủ các cột của lệnh).']);
+    try {
+      const outcome = await runOnFoxPro(payroll.execute, tab, prepared.source, 'foxpro', { maxRows: MAX_ROWS, resolveColumnKind, resolveColumnWidth });
+      expect(outcome.result!.error).toBeUndefined();
+      // Four checks come out 0; the first finds the one row whose stored TP is 1000 too high.
+      expect(outcome.result!.resultSets.map((set) => set.rows[0][0])).toEqual([1000, 0, 0, 0, 0]);
+      expect(outcome.result!.resultSets[0].columns).toEqual(['TP-LC*HSDC*2700000*DIEMP/9.8*CP/(25)*HSL']);
+      expect(outcome.result!.messages).toHaveLength(1);
+      const listing = outcome.result!.messages[0].split('Liệt kê các dòng lệch: ')[1];
+      const wrong = await runOnFoxPro(payroll.execute, tab, listing, 'foxpro', { maxRows: MAX_ROWS, resolveColumnKind, resolveColumnWidth });
+      expect(wrong.result!.resultSets[0].rows.map((r) => [r[0], r[r.length - 1]])).toEqual([['NV004', 1000]]);
+      expect(tab.currentTable).toBe('bangluong');
+    } finally {
+      await payroll.disconnect();
+    }
   });
 
   it('shows a General (OLE) field as binary instead of failing the row', async () => {
