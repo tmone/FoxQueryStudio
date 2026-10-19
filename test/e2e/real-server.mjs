@@ -96,14 +96,15 @@ try {
   const [[tableCount, viewCount]] = sqlcmd(
     "SELECT SUM(CASE WHEN TABLE_TYPE = 'BASE TABLE' THEN 1 ELSE 0 END), SUM(CASE WHEN TABLE_TYPE = 'VIEW' THEN 1 ELSE 0 END) FROM INFORMATION_SCHEMA.TABLES",
   );
+  const [[procedureCount]] = sqlcmd("SELECT COUNT(*) FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_TYPE = 'PROCEDURE'");
   const groups = await page.$$eval('#explorer-tree .group > summary', (nodes) => nodes.map((n) => n.textContent));
-  assert.deepEqual(groups, [`Bảng (${tableCount})`, `View (${viewCount})`]);
+  assert.deepEqual(groups, [`Bảng (${tableCount})`, `View (${viewCount})`, `Thủ tục (${procedureCount})`]);
   // Nodes are nested like the SSMS object explorer: server, database, then folders.
   assert.equal(await page.textContent('#explorer-tree > .server > summary'), `${SERVER},${PORT} (${USER})`);
   // Every database of the server is listed; the one the profile named is open and current, the others load on demand.
   assert.ok((await page.locator('#explorer-tree > .server > .database').count()) > 1, 'all databases are listed');
   assert.equal(await page.textContent('#explorer-tree > .server > .database.current > summary'), DATABASE);
-  assert.equal(await page.locator('#explorer-tree > .server > .database.current > .group').count(), 2);
+  assert.equal(await page.locator('#explorer-tree > .server > .database.current > .group').count(), 3);
   assert.equal(await page.textContent('#explorer-tree .database.current > .cursors > summary'), 'Cursor của tab (0)');
   // The toolbar box shows the tab's database, as in SSMS.
   assert.equal(await page.isVisible('#tab-database'), true);

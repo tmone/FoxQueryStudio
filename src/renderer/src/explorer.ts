@@ -1,5 +1,6 @@
 import type { Registration } from '../../shared/registry';
-import type { ConnectionInfo, SchemaColumn, SchemaIndex, SchemaKey, SchemaTable } from '../../shared/types';
+import { isProcedure, type ConnectionInfo, type SchemaColumn, type SchemaIndex, type SchemaKey, type SchemaTable } from '../../shared/types';
+import { execTemplate } from '../../shared/procedures';
 import { displayName, qualifiedName } from './editor';
 import { closeContextMenu, icon, showContextMenu, type IconName } from './widgets';
 
@@ -32,6 +33,8 @@ export interface ExplorerActions {
   selectTop(connectionId: string, database: string, table: SchemaTable): void;
   /** Makes the table the one the active tab works on, as USE does: SUM, COUNT, BROWSE… need no name then. */
   useTable(connectionId: string, database: string, table: SchemaTable): void;
+  /** Opens a new tab with `EXEC proc @p = … INTO CURSOR kq` ready to fill in. */
+  runProcedure(connectionId: string, database: string, procedure: SchemaTable): void;
   /** Makes the connection (and database, when given) the one new queries use. */
   select(connectionId: string, database?: string): void;
   /** Loads the tables of a database the first time its node is opened. */
@@ -135,6 +138,25 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
     return details;
   }
 
+  /** A stored procedure: its parameters under it; a double-click or the menu starts an EXEC for it. */
+  function procedureNode(connectionId: string, database: string, procedure: SchemaTable): HTMLDetailsElement {
+    const { details, summary } = node('table', 'procedure', displayName(procedure));
+    details.classList.add('procedure');
+    summary.title = 'Nhấp đúp để mở tab EXEC … INTO CURSOR; nhấp phải để xem thêm lệnh';
+    summary.addEventListener('dblclick', () => actions.runProcedure(connectionId, database, procedure));
+    summary.addEventListener('contextmenu', (event) =>
+      showContextMenu(event, [
+        { label: 'Chạy (EXEC … INTO CURSOR, có rollback)', icon: 'run', run: () => actions.runProcedure(connectionId, database, procedure) },
+        { label: 'Chèn lệnh EXEC vào truy vấn', icon: 'insertName', run: () => actions.insertText(execTemplate(qualifiedName(procedure), procedure.parameters ?? [])) },
+      ]),
+    );
+    const list = document.createElement('ul');
+    for (const parameter of procedure.parameters ?? []) list.append(leaf('column', 'column', parameter.name, `(${parameter.display})`));
+    if (!list.children.length) list.append(leaf('column', 'column', '(không có tham số)'));
+    details.append(list);
+    return details;
+  }
+
   /** `name (PK, nvarchar(150), not null)`, as the SSMS object explorer labels a column. */
   function columnDetail(column: SchemaColumn): string {
     const parts = [column.keyRole, column.display ?? column.dataType, column.nullable ? 'null' : 'not null'].filter(Boolean);
@@ -212,16 +234,20 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
       return;
     }
     const visible = database.tables.filter((t) => displayName(t).toLowerCase().includes(filter));
-    const group = (title: string, tables: SchemaTable[], open: boolean) => {
-      const { details: folder } = node('group', 'folder', `${title} (${tables.length})`, open);
-      folder.append(...tables.map((t) => tableNode(connection.id, database.name, t)));
+    const group = (title: string, objects: SchemaTable[], open: boolean, item: (t: SchemaTable) => HTMLElement) => {
+      const { details: folder } = node('group', 'folder', `${title} (${objects.length})`, open);
+      folder.append(...objects.map(item));
       return folder;
     };
+    const table = (t: SchemaTable) => tableNode(connection.id, database.name, t);
+    const procedures = visible.filter(isProcedure);
     details.append(
-      group('Bảng', visible.filter((t) => !t.isView), true),
-      // With a filter typed, matching views should be visible without another click.
-      group('View', visible.filter((t) => t.isView), filter !== ''),
+      group('Bảng', visible.filter((t) => !t.isView && !isProcedure(t)), true, table),
+      // With a filter typed, matching views and procedures should be visible without another click.
+      group('View', visible.filter((t) => t.isView), filter !== '', table),
     );
+    // FoxPro databases have no procedures; the folder would only say so.
+    if (connection.kind === 'sql') details.append(group('Thủ tục', procedures, filter !== '', (p) => procedureNode(connection.id, database.name, p)));
   }
 
   function databaseNode(connection: ExplorerConnection, database: ExplorerDatabase): HTMLDetailsElement {

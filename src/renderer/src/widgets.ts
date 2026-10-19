@@ -31,7 +31,8 @@ export type IconName =
   | 'rename'
   | 'key'
   | 'foreignKey'
-  | 'index';
+  | 'index'
+  | 'procedure';
 
 /** Line icons, 16×16, in the spirit of the SSMS object explorer; colour comes from CSS. */
 const ICONS: Record<IconName, string> = {
@@ -60,6 +61,7 @@ const ICONS: Record<IconName, string> = {
   key: '<circle cx="5" cy="11" r="2.5"/><path d="M6.8 9.2l6.2-6.2M11 5l1.5 1.5M9 7l1.5 1.5"/>',
   foreignKey: '<circle cx="5" cy="11" r="2.5"/><path d="M6.8 9.2l6.2-6.2M11 5l1.5 1.5M9 7l1.5 1.5"/><path d="M1.5 2.5h3v3" stroke-dasharray="1 1"/>',
   index: '<path d="M3 3.5h10M3 6.5h10M3 9.5h6M3 12.5h4"/><path d="M11.5 9.5v4M10 12l1.5 1.5L13 12"/>',
+  procedure: '<rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M5 10.5l2.5-2.5L5 5.5M8.5 10.5h3"/>',
 };
 
 export function icon(name: IconName): SVGElement {

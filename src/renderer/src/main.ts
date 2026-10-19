@@ -9,6 +9,7 @@ import type { ConnectionInfo, ConnectionProfile, ExecuteResult, SchemaTable } fr
 import { updateActionLabel, type UpdateStatus } from '../../shared/update';
 import { queryTitle } from '../../shared/journal';
 import { prepareFoxBatch } from '../../shared/fox-prepare';
+import { execTemplate } from '../../shared/procedures';
 import { createCompareEditor, createEditor, createModel, displayName, LANGUAGE_ID, monaco, qualifiedName, setSchema, TSQL_LANGUAGE_ID } from './editor';
 import type { Registration } from '../../shared/registry';
 import { connectionLabel, createExplorer, registrationLabel, type ExplorerConnection } from './explorer';
@@ -158,6 +159,9 @@ const explorer = createExplorer(el('explorer-tree'), {
     void run();
   },
   useTable: (connectionId, database, table) => void useTable(connectionId, database, table),
+  runProcedure: (connectionId, database, procedure) => {
+    newTab(execTemplate(qualifiedName(procedure), procedure.parameters ?? [], 'kq'), undefined, 'tsql', connectionId, database);
+  },
   loadDatabase: (connectionId, database) => void loadDatabase(connectionId, database),
   connect: (registrationId) => void connectSaved(registrationId),
   remove: (registrationId) => void removeRegistration(registrationId),
@@ -375,6 +379,7 @@ async function run(): Promise<void> {
   if (!connection || tab.running || connecting) return;
   const { resolveColumnKind, resolveColumnWidth } = lookups(tab);
   const executeOnServer = executeOn(connection.id, tab.database);
+  const callProcedure = (sessionId: string, statement: string, maxRows: number, cursor?: string) => window.db.callProcedure(connection.id, sessionId, statement, maxRows, tab.database, cursor);
   const selection = editor.getSelection();
   const useSelection = selection !== null && !selection.isEmpty();
   let source = useSelection ? tab.model.getValueInRange(selection) : tab.model.getValue();
@@ -419,7 +424,7 @@ async function run(): Promise<void> {
       const other = LANGUAGES[LANGUAGES[tab.language].other].name;
       lines.push(...formatDiagnostics(`Không chạy được vì chưa chuyển được sang ${other},`, errors), ...formatDiagnostics(`Lưu ý khi dịch sang ${other},`, warnings));
     } else if (tab.language === 'foxpro') {
-      const outcome = await runFoxQuery(executeOnServer, tab, source, { maxRows: MAX_ROWS, resolveColumnKind, onExecute });
+      const outcome = await runFoxQuery(executeOnServer, tab, source, { maxRows: MAX_ROWS, resolveColumnKind, onExecute, callProcedure });
       result = outcome.result;
       errors = shift(outcome.conversion.errors);
       warnings = shift(outcome.conversion.warnings);
@@ -427,7 +432,7 @@ async function run(): Promise<void> {
       lines.push(...formatDiagnostics('Lỗi', errors), ...formatDiagnostics('Cảnh báo', warnings));
     } else {
       // T-SQL runs as written; what FoxPro cannot express only limits the translation.
-      const outcome = await runTsqlQuery(executeOnServer, tab, source, { maxRows: MAX_ROWS, resolveColumnKind, resolveColumnWidth, onExecute });
+      const outcome = await runTsqlQuery(executeOnServer, tab, source, { maxRows: MAX_ROWS, resolveColumnKind, resolveColumnWidth, onExecute, callProcedure });
       result = outcome.result;
       warnings = shift([...outcome.conversion.errors, ...outcome.conversion.warnings]);
       tab.translation = outcome.conversion.foxpro;

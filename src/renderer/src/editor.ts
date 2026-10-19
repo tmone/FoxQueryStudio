@@ -23,7 +23,8 @@ const FUNCTIONS = [...new Set([...FOXPRO_FUNCTIONS, ...AGGREGATES, 'IIF', 'STR',
 let schema: SchemaTable[] = [];
 
 export function setSchema(tables: SchemaTable[]): void {
-  schema = tables;
+  // Procedures are listed with the objects but are not tables to complete in FROM.
+  schema = tables.filter((t) => t.kind !== 'procedure');
 }
 
 /** Quotes a name with brackets only when SQL Server requires it. */

@@ -3,7 +3,7 @@ import { parseServerName } from '../shared/server-name';
 import type { SchemaKey, CellValue, ConnectionProfile, DbBackend, ExecuteResult, ResultSet, SchemaTable } from '../shared/types';
 
 /** The parts of the `mssql` package used here; `mssql/msnodesqlv8` offers the same ones. */
-export type SqlDriver = Pick<typeof sqlTypes, 'ConnectionPool'>;
+export type SqlDriver = Pick<typeof sqlTypes, 'ConnectionPool' | 'Table' | 'MAX'>;
 type Pool = sqlTypes.ConnectionPool;
 
 /** Three result sets: columns, key constraints, indexes — what the object explorer shows for a table. */
@@ -24,7 +24,12 @@ JOIN sys.schemas s ON s.schema_id = o.schema_id
 JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
 JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
 WHERE i.name IS NOT NULL AND o.type IN ('U', 'V') AND ic.is_included_column = 0
-ORDER BY s.name, o.name, i.name, ic.key_ordinal`;
+ORDER BY s.name, o.name, i.name, ic.key_ordinal;
+SELECT r.ROUTINE_SCHEMA, r.ROUTINE_NAME, p.PARAMETER_NAME, p.DATA_TYPE, p.CHARACTER_MAXIMUM_LENGTH, p.NUMERIC_PRECISION, p.NUMERIC_SCALE
+FROM INFORMATION_SCHEMA.ROUTINES r
+LEFT JOIN INFORMATION_SCHEMA.PARAMETERS p ON p.SPECIFIC_SCHEMA = r.SPECIFIC_SCHEMA AND p.SPECIFIC_NAME = r.SPECIFIC_NAME AND p.PARAMETER_MODE <> 'OUT' AND p.PARAMETER_NAME <> ''
+WHERE r.ROUTINE_TYPE = 'PROCEDURE'
+ORDER BY r.ROUTINE_SCHEMA, r.ROUTINE_NAME, p.ORDINAL_POSITION`;
 
 type Row = Record<string, unknown>;
 const KEY_KIND: Record<string, SchemaKey['kind']> = { 'PRIMARY KEY': 'PK', 'FOREIGN KEY': 'FK', UNIQUE: 'UQ' };
@@ -38,8 +43,8 @@ export function displayType(row: Row): string {
   return type;
 }
 
-/** Groups the result sets of SCHEMA_QUERY into tables with their columns, keys and indexes. */
-export function schemaFromRows(columns: Row[], keys: Row[] = [], indexes: Row[] = []): SchemaTable[] {
+/** Groups the result sets of SCHEMA_QUERY into tables with their columns, keys and indexes, then the procedures. */
+export function schemaFromRows(columns: Row[], keys: Row[] = [], indexes: Row[] = [], procedures: Row[] = []): SchemaTable[] {
   const tables = new Map<string, SchemaTable>();
   const tableOf = (row: Row) => tables.get(`${row.TABLE_SCHEMA}.${row.TABLE_NAME}`);
   for (const row of columns) {
@@ -77,7 +82,52 @@ export function schemaFromRows(columns: Row[], keys: Row[] = [], indexes: Row[] 
     if (!index) table.indexes!.push((index = { name, unique: !!row.IS_UNIQUE, clustered: String(row.INDEX_TYPE).toUpperCase() === 'CLUSTERED', primary: !!row.IS_PRIMARY, columns: [] }));
     index.columns.push(String(row.COLUMN_NAME));
   }
-  return [...tables.values()];
+  const routines = new Map<string, SchemaTable>();
+  for (const row of procedures) {
+    const key = `${row.ROUTINE_SCHEMA}.${row.ROUTINE_NAME}`;
+    let routine = routines.get(key);
+    if (!routine) routines.set(key, (routine = { schema: String(row.ROUTINE_SCHEMA), name: String(row.ROUTINE_NAME), isView: false, columns: [], kind: 'procedure', parameters: [] }));
+    if (row.PARAMETER_NAME) routine.parameters!.push({ name: String(row.PARAMETER_NAME), display: displayType(row) });
+  }
+  return [...tables.values(), ...routines.values()];
+}
+
+/**
+ * The EXEC inside a transaction that is always rolled back: whatever the procedure wrote is
+ * undone, its result sets still come back. A procedure that rolled back on its own leaves
+ * no transaction, hence the @@TRANCOUNT check; an error is passed on as it was.
+ */
+export function rolledBack(statement: string): string {
+  return `BEGIN TRAN;\nBEGIN TRY\n${statement};\nIF @@TRANCOUNT > 0 ROLLBACK TRAN;\nEND TRY\nBEGIN CATCH\nIF @@TRANCOUNT > 0 ROLLBACK TRAN;\nTHROW;\nEND CATCH`;
+}
+
+/** What the driver tells about a result column, enough to make a table that holds the rows. */
+interface ColumnMeta {
+  name: string;
+  type: unknown;
+  length?: number;
+  precision?: number;
+  scale?: number;
+}
+
+const withoutRaw = ({ raw: _raw, ...result }: ExecuteResult & { raw: unknown }): ExecuteResult => result;
+
+/** Lengths above this (and 0 or -1) mean (max). */
+const MAX_LENGTH_THRESHOLD = 8000;
+const SIZED_TYPES = /^(n?var)?(char|binary)$/i;
+const SCALED_TYPES = /^(decimal|numeric)$/i;
+
+/** The column's type with its size, as the driver's type factories take it: nvarchar(50), decimal(18,2), int. */
+function sizedType(column: ColumnMeta, max: number): unknown {
+  const factory = column.type as ((...args: number[]) => unknown) & { declaration?: string };
+  if (typeof factory !== 'function') return column.type;
+  const declaration = factory.declaration ?? '';
+  if (SIZED_TYPES.test(declaration)) {
+    const length = column.length === undefined || column.length <= 0 || column.length > MAX_LENGTH_THRESHOLD ? max : column.length;
+    return factory(length);
+  }
+  if (SCALED_TYPES.test(declaration) && column.precision !== undefined) return factory(column.precision, column.scale ?? 0);
+  return factory();
 }
 
 const DATABASES_QUERY = 'SELECT name FROM sys.databases WHERE state = 0 AND HAS_DBACCESS(name) = 1 ORDER BY name';
@@ -210,15 +260,45 @@ export function createDatabase(driver: SqlDriver, buildConfig: (profile: Connect
       const pool = await openPool(requireProfile());
       try {
         const { recordsets } = (await pool.request().batch(inDatabase(SCHEMA_QUERY, database))) as unknown as { recordsets: Row[][] };
-        return schemaFromRows(recordsets[0] ?? [], recordsets[1], recordsets[2]);
+        return schemaFromRows(recordsets[0] ?? [], recordsets[1], recordsets[2], recordsets[3]);
       } finally {
         await pool.close();
       }
     },
 
-    async execute(sessionId, sqlText, maxRows, database): Promise<ExecuteResult> {
+    // The raw rows stay in this process: the driver's column metadata cannot cross IPC.
+    execute: async (sessionId, sqlText, maxRows, database) => withoutRaw(await runBatch(sessionId, sqlText, maxRows, database)),
+
+    async callProcedure(sessionId, statement, maxRows, database, cursor): Promise<ExecuteResult> {
+      const started = Date.now();
+      const { raw, ...outcome } = await runBatch(sessionId, rolledBack(statement), maxRows, database, true);
+      if (outcome.error || !cursor) return { ...outcome, elapsedMs: Date.now() - started };
+      const first = raw[0];
+      if (!first) return { ...outcome, error: 'Thủ tục không trả về bảng kết quả nào để đưa vào cursor.', elapsedMs: Date.now() - started };
+      // The first result set becomes the session's cursor: a #temp table shaped like it, filled in one bulk load.
+      const pool = await getSession(sessionId);
+      const table = new driver.Table(`#${cursor}`);
+      table.create = true;
+      for (const column of first.columns) table.columns.add(column.name, sizedType(column, driver.MAX as number) as never, { nullable: true });
+      for (const row of first.rows) table.rows.add(...(row as never[]));
+      try {
+        await pool.request().batch(inDatabase(`DROP TABLE IF EXISTS [#${cursor}]`, database));
+        await pool.request().bulk(table);
+      } catch (e) {
+        return { ...outcome, error: `Không tạo được cursor ${cursor} từ kết quả thủ tục: ${(e as Error).message}`, elapsedMs: Date.now() - started };
+      }
+      return { ...outcome, messages: [...outcome.messages, `Cursor ${cursor}: ${first.rows.length} dòng từ kết quả thủ tục.`], elapsedMs: Date.now() - started };
+    },
+  };
+
+  /**
+   * Runs a batch in the session and collects what comes back; with `keepRaw` the result sets are
+   * also kept as the driver gave them (values and column metadata), for building a cursor.
+   */
+  async function runBatch(sessionId: string, sqlText: string, maxRows: number, database?: string, keepRaw = false): Promise<ExecuteResult & { raw: { columns: ColumnMeta[]; rows: unknown[][] }[] }> {
       const started = Date.now();
       const resultSets: ResultSet[] = [];
+      const raw: { columns: ColumnMeta[]; rows: unknown[][] }[] = [];
       const messages: string[] = [];
       let error: string | undefined;
       let truncated = false;
@@ -233,11 +313,13 @@ export function createDatabase(driver: SqlDriver, buildConfig: (profile: Connect
         request.on('recordset', (columns: unknown) => {
           const list = Array.isArray(columns) ? columns : Object.values(columns as object);
           resultSets.push({ columns: list.map((c: { name: string }) => c.name), rows: [] });
+          if (keepRaw) raw.push({ columns: list as ColumnMeta[], rows: [] });
         });
         request.on('row', (row: unknown[]) => {
           const current = resultSets[resultSets.length - 1];
           if (current.rows.length < maxRows) {
             current.rows.push(row.map(toCell));
+            if (keepRaw) raw[raw.length - 1].rows.push(row);
           } else if (!truncated) {
             truncated = true;
             request.cancel();
@@ -271,7 +353,6 @@ export function createDatabase(driver: SqlDriver, buildConfig: (profile: Connect
         sessions.delete(sessionId);
         void pool.close().catch(() => undefined);
       }
-      return { resultSets, messages, error, truncated, sessionReset: stalled || undefined, elapsedMs: Date.now() - started };
-    },
-  };
+      return { resultSets, messages, error, truncated, sessionReset: stalled || undefined, elapsedMs: Date.now() - started, raw };
+  }
 }

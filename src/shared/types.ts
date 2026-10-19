@@ -37,6 +37,12 @@ export interface SchemaIndex {
   columns: string[];
 }
 
+export interface SchemaParameter {
+  /** With its @, as it is passed. */
+  name: string;
+  display: string;
+}
+
 export interface SchemaTable {
   schema: string;
   name: string;
@@ -44,7 +50,12 @@ export interface SchemaTable {
   columns: SchemaColumn[];
   keys?: SchemaKey[];
   indexes?: SchemaIndex[];
+  /** A stored procedure is listed with the objects too; it has parameters and no columns. */
+  kind?: 'procedure';
+  parameters?: SchemaParameter[];
 }
+
+export const isProcedure = (object: SchemaTable): boolean => object.kind === 'procedure';
 
 export type CellValue = string | number | boolean | null;
 
@@ -92,6 +103,8 @@ export interface DbApi {
   loadSchema(connectionId: string, database: string): Promise<SchemaTable[]>;
   /** `database` is the one the batch runs in; it is switched to at the start of the batch. */
   execute(connectionId: string, sessionId: string, sql: string, maxRows: number, database?: string): Promise<ExecuteResult>;
+  /** Runs an EXEC inside a transaction that is rolled back; with `cursor`, its first result set becomes that #temp cursor. */
+  callProcedure(connectionId: string, sessionId: string, statement: string, maxRows: number, database?: string, cursor?: string): Promise<ExecuteResult>;
   closeSession(connectionId: string, sessionId: string): Promise<void>;
 }
 
@@ -101,5 +114,7 @@ export interface DbBackend {
   listDatabases(): Promise<string[]>;
   loadSchema(database?: string): Promise<SchemaTable[]>;
   execute(sessionId: string, sql: string, maxRows: number, database?: string): Promise<ExecuteResult>;
+  /** See DbApi.callProcedure; a FoxPro database has no procedures and rejects the call. */
+  callProcedure(sessionId: string, statement: string, maxRows: number, database?: string, cursor?: string): Promise<ExecuteResult>;
   closeSession(sessionId: string): Promise<void>;
 }

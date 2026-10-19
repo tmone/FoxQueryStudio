@@ -330,6 +330,10 @@ button.version.failed {
   color: #4f6b8f;
 }
 
+.tree .icon-procedure {
+  color: #8b5a2b;
+}
+
 /* Every level is indented from its parent, like the SSMS object explorer. */
 .tree .node .node {
   margin-left: 14px;

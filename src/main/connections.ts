@@ -104,6 +104,7 @@ export function createConnections(newSqlDatabase: () => SqlDatabase, newFoxEngin
     listDatabases: (id: string): Promise<string[]> => get(id).backend.listDatabases(),
     loadSchema: (id: string, database: string): Promise<SchemaTable[]> => get(id).backend.loadSchema(database),
     execute: (id: string, sessionId: string, sql: string, maxRows: number, database?: string) => get(id).backend.execute(sessionId, sql, maxRows, database),
+    callProcedure: (id: string, sessionId: string, statement: string, maxRows: number, database?: string, cursor?: string) => get(id).backend.callProcedure(sessionId, statement, maxRows, database, cursor),
     closeSession: (id: string, sessionId: string) => connections.get(id)?.backend.closeSession(sessionId) ?? Promise.resolve(),
   };
 }

@@ -13,6 +13,7 @@ const api: DbApi = {
   listDatabases: (id) => ipcRenderer.invoke('db:databases', id),
   loadSchema: (id, database) => ipcRenderer.invoke('db:schema', id, database),
   execute: (id, sessionId, sql, maxRows, database) => ipcRenderer.invoke('db:execute', id, sessionId, sql, maxRows, database),
+  callProcedure: (id, sessionId, statement, maxRows, database, cursor) => ipcRenderer.invoke('db:callProcedure', id, sessionId, statement, maxRows, database, cursor),
   closeSession: (id, sessionId) => ipcRenderer.invoke('db:closeSession', id, sessionId),
 };
 

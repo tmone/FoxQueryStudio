@@ -7,6 +7,7 @@ import type { ConnectionProfile } from '../src/shared/types';
 // stream contract (recordset, row, info, error, then always done). This is how the
 // default driver (tedious) behaves, which cannot be exercised against LocalDB.
 
+const MAX_ROWS = 100;
 const PROFILE: ConnectionProfile = { server: 's', database: 'd', user: 'u', password: 'p', encrypt: true, trustServerCertificate: false };
 
 type Step = ['recordset', string[]] | ['row', unknown[]] | ['info', string] | ['error', string] | ['done'];
@@ -15,6 +16,9 @@ class FakeRequest extends EventEmitter {
   stream = false;
   arrayRowMode = false;
   cancelled = 0;
+  /** What was sent, for the wrapper around a procedure call. */
+  sent: string[] = [];
+  bulkTables: FakeTable[] = [];
 
   constructor(private readonly scripts: Step[][]) {
     super();
@@ -29,7 +33,12 @@ class FakeRequest extends EventEmitter {
     return { recordset: [{ name: 'MSSQLSERVER', db: 'd' }] };
   }
 
-  async batch(): Promise<void> {
+  async bulk(table: FakeTable): Promise<void> {
+    this.bulkTables.push(table);
+  }
+
+  async batch(sql: string): Promise<void> {
+    this.sent.push(sql);
     for (const [event, payload] of this.scripts.shift() ?? [['done']]) {
       await Promise.resolve();
       // After a cancel the server stops sending rows and reports the cancellation.
@@ -41,6 +50,14 @@ class FakeRequest extends EventEmitter {
       else this.emit(event, payload);
     }
   }
+}
+
+/** The driver's Table: name, columns and rows as added, which bulk() receives. */
+class FakeTable {
+  create = false;
+  columns = { list: [] as { name: string; type: unknown; options: unknown }[], add(name: string, type: unknown, options: unknown) { this.list.push({ name, type, options }); } };
+  rows = { list: [] as unknown[][], add(...values: unknown[]) { this.list.push(values); } };
+  constructor(readonly name: string) {}
 }
 
 function fakeDriver(scripts: Step[][]) {
@@ -62,7 +79,7 @@ function fakeDriver(scripts: Step[][]) {
       return request;
     }
   }
-  return { driver: { ConnectionPool } as unknown as SqlDriver, pools };
+  return { driver: { ConnectionPool, Table: FakeTable, MAX: 65535 } as unknown as SqlDriver, pools };
 }
 
 async function connected(scripts: Step[][]) {
@@ -155,6 +172,33 @@ describe('database service against the documented driver contract', () => {
     expect(result.error).toBeUndefined();
     expect(pools[1].requests[0].cancelled).toBe(1);
     expect(pools[1].requests[0]).toMatchObject({ stream: true, arrayRowMode: true });
+  });
+
+  it('runs a procedure inside a transaction that is rolled back and keeps its first result as a cursor', async () => {
+    const { db, pools } = await connected([
+      [['recordset', ['DowCode', 'Days']], ['row', ['2026/09', 30]], ['row', ['2026/10', 29]], ['recordset', ['n']], ['row', [2]], ['done']],
+      [['done']],
+    ]);
+    const result = await db.callProcedure('tab', "EXEC dbo.GetDow @Year = 2026", MAX_ROWS, 'LAMTHAO', 'dow');
+    expect(result.error).toBeUndefined();
+    expect(result.resultSets).toEqual([{ columns: ['DowCode', 'Days'], rows: [['2026/09', 30], ['2026/10', 29]] }, { columns: ['n'], rows: [[2]] }]);
+    expect(result.messages).toEqual(['Cursor dow: 2 dòng từ kết quả thủ tục.']);
+    const requests = pools[1].requests;
+    expect(requests[0].sent[0]).toBe("USE [LAMTHAO];\nBEGIN TRAN;\nBEGIN TRY\nEXEC dbo.GetDow @Year = 2026;\nIF @@TRANCOUNT > 0 ROLLBACK TRAN;\nEND TRY\nBEGIN CATCH\nIF @@TRANCOUNT > 0 ROLLBACK TRAN;\nTHROW;\nEND CATCH");
+    expect(requests[1].sent[0]).toBe('USE [LAMTHAO];\nDROP TABLE IF EXISTS [#dow]');
+    const table = requests[2].bulkTables[0];
+    expect(table.name).toBe('#dow');
+    expect(table.create).toBe(true);
+    expect(table.columns.list.map((c) => c.name)).toEqual(['DowCode', 'Days']);
+    expect(table.rows.list).toEqual([['2026/09', 30], ['2026/10', 29]]);
+  });
+
+  it('passes a procedure error on and makes no cursor', async () => {
+    const { db, pools } = await connected([[['error', 'Could not find stored procedure'], ['done']]]);
+    const result = await db.callProcedure('tab', 'EXEC dbo.Missing', MAX_ROWS, undefined, 'x');
+    expect(result.error).toMatch(/Could not find/);
+    expect(pools[1].requests).toHaveLength(1);
+    expect((await db.callProcedure('tab2', 'EXEC dbo.NoRows', MAX_ROWS, undefined, 'x')).error).toMatch(/không trả về bảng kết quả/);
   });
 
   it('gives every tab its own connection and closes them on demand', async () => {

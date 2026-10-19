@@ -514,6 +514,10 @@ export function createFoxEngine(locateVfp: () => string | undefined = findVfp): 
       return answer.tables.sort((a, b) => a.name.localeCompare(b.name));
     },
 
+    async callProcedure(): Promise<ExecuteResult> {
+      return { resultSets: [], messages: [], error: 'CSDL FoxPro không có thủ tục (EXEC chỉ dùng với SQL Server).', truncated: false, elapsedMs: 0 };
+    },
+
     async execute(sessionId, source, maxRows): Promise<ExecuteResult> {
       const started = Date.now();
       const failed = (error: string, sessionReset?: boolean): ExecuteResult => ({ resultSets: [], messages: [], error, truncated: false, sessionReset, elapsedMs: Date.now() - started });

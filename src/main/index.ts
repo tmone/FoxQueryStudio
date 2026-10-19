@@ -63,6 +63,7 @@ function registerIpc(): void {
   ipcMain.handle('db:databases', (_e, id: string) => connections.listDatabases(id));
   ipcMain.handle('db:schema', (_e, id: string, database: string) => connections.loadSchema(id, database));
   ipcMain.handle('db:execute', (_e, id: string, sessionId: string, sql: string, maxRows: number, database?: string) => connections.execute(id, sessionId, sql, maxRows, database));
+  ipcMain.handle('db:callProcedure', (_e, id: string, sessionId: string, statement: string, maxRows: number, database?: string, cursor?: string) => connections.callProcedure(id, sessionId, statement, maxRows, database, cursor));
   ipcMain.handle('db:closeSession', (_e, id: string, sessionId: string) => connections.closeSession(id, sessionId));
 }
 

@@ -60,6 +60,12 @@ const SETUP = [
   `CREATE TABLE dbo.BangLuong (MaNV varchar(10) NOT NULL, Thang int NOT NULL, Nam int NOT NULL, NgayCong decimal(5,1) NOT NULL, ThucLinh decimal(18,2) NOT NULL, DaChot bit NOT NULL)`,
   `INSERT INTO dbo.BangLuong VALUES ${PAYROLL.map(([ma, thang, cong, linh]) => `('${ma}', ${thang}, 2026, ${cong}, ${linh}, ${thang === 8 ? 1 : 0})`).join(', ')}`,
   `CREATE VIEW dbo.vw_LuongThang AS SELECT b.MaNV, n.HoTen, b.Thang, b.Nam, b.ThucLinh FROM dbo.BangLuong b JOIN dbo.NhanVien n ON n.MaNV = b.MaNV`,
+  // A payroll procedure of the kind customers run: it closes the month (a write) and returns the sheet.
+  `CREATE PROCEDURE dbo.sp_LuongThang @Thang int, @Nam int = 2026 AS BEGIN
+     UPDATE dbo.BangLuong SET DaChot = 1 WHERE Thang = @Thang AND Nam = @Nam;
+     SELECT b.MaNV, n.HoTen, b.NgayCong, b.ThucLinh, n.LuongCoBan, n.HeSo FROM dbo.BangLuong b JOIN dbo.NhanVien n ON n.MaNV = b.MaNV WHERE b.Thang = @Thang AND b.Nam = @Nam;
+     SELECT COUNT(*) AS SoDong FROM dbo.BangLuong WHERE Thang = @Thang AND Nam = @Nam;
+   END`,
 ];
 
 const PROFILE: ConnectionProfile = { server: '(localdb)\\MSSQLLocalDB', database: DATABASE, user: '', password: '', encrypt: false, trustServerCertificate: true };
@@ -131,7 +137,7 @@ describe.skipIf(!isLocalDbAvailable())('application database service and query f
     });
 
     it('loads tables, views and column types', () => {
-      expect(schema.map((t) => `${t.schema}.${t.name}${t.isView ? ' (view)' : ''}`).sort()).toEqual([
+      expect(schema.filter((t) => t.kind !== 'procedure').map((t) => `${t.schema}.${t.name}${t.isView ? ' (view)' : ''}`).sort()).toEqual([
         'dbo.BangLuong', 'dbo.NhanVien', 'dbo.PhongBan', 'dbo.vw_LuongThang (view)',
       ]);
       const columns = Object.fromEntries(schema.find((t) => t.name === 'NhanVien')!.columns.map((c) => [c.name, c]));
@@ -197,6 +203,39 @@ describe.skipIf(!isLocalDbAvailable())('application database service and query f
       const exact = await db.execute('limit', 'SELECT MaPB FROM dbo.PhongBan', 3);
       expect(exact.truncated).toBe(false);
       expect(exact.resultSets[0].rows).toHaveLength(3);
+    });
+
+    it('lists procedures with their parameters among the objects', () => {
+      const procedure = schema.find((t) => t.kind === 'procedure' && t.name === 'sp_LuongThang')!;
+      expect(procedure.parameters).toEqual([{ name: '@Thang', display: 'int' }, { name: '@Nam', display: 'int' }]);
+    });
+
+    it('runs EXEC … INTO CURSOR with the write rolled back, then xBase checks on the cursor', async () => {
+      const session = newSession('proc');
+      const source = ['EXEC dbo.sp_LuongThang @Thang = 9 INTO CURSOR bl', 'SUM ThucLinh FOR NgayCong > 21', 'COUNT FOR LuongCoBan * HeSo > 50000000', 'BROWSE FIELDS MaNV, ThucLinh FOR MaNV = "QL001"'].join('\n');
+      const outcome = await runFoxQuery(db.execute, session, source, { maxRows: MAX_ROWS, resolveColumnKind, callProcedure: (id, statement, max, cursor) => db.callProcedure(id, statement, max, undefined, cursor) });
+      expect(outcome.conversion.errors).toEqual([]);
+      expect(outcome.result!.error).toBeUndefined();
+      const september = PAYROLL.filter(([, thang]) => thang === 9);
+      const [sheet, count, total, rich, browse] = outcome.result!.resultSets;
+      expect(sheet.rows).toHaveLength(september.length);
+      expect(count.rows).toEqual([[september.length]]);
+      expect(total.rows[0][0]).toBe(sum(september.filter(([, , cong]) => cong > 21).map(([, , , linh]) => linh)));
+      expect(rich.rows[0][0]).toBe(EMPLOYEES.filter((e) => e.luong * (e.heso ?? 1) > 50000000).length);
+      expect(browse.rows).toEqual([['QL001', september.find(([ma]) => ma === 'QL001')![3]]]);
+      expect(outcome.result!.messages).toContain('Cursor bl: 22 dòng từ kết quả thủ tục.'.replace('22', String(september.length)));
+      expect(session.cursors).toContain('bl');
+      // The month was not closed: the procedure's UPDATE was rolled back.
+      expect((await db.execute('check', 'SELECT COUNT(*) FROM dbo.BangLuong WHERE Thang = 9 AND DaChot = 1', MAX_ROWS)).resultSets[0].rows).toEqual([[0]]);
+    });
+
+    it('refuses T-SQL that writes, and runs EXEC in T-SQL mode too', async () => {
+      const { runTsqlQuery } = await import('../src/shared/run-query');
+      const refused = await runTsqlQuery(db.execute, newSession('w'), 'SELECT 1\nUPDATE dbo.BangLuong SET DaChot = 1', { maxRows: MAX_ROWS });
+      expect(refused.result!.error).toMatch(/^Dòng 2: Lệnh UPDATE ghi/);
+      const ran = await runTsqlQuery(db.execute, newSession('w2'), 'EXEC dbo.sp_LuongThang @Thang = 8\nSELECT 1 AS ok', { maxRows: MAX_ROWS, callProcedure: (id, statement, max, cursor) => db.callProcedure(id, statement, max, undefined, cursor) });
+      expect(ran.result!.error).toBeUndefined();
+      expect(ran.result!.resultSets.map((s) => s.rows.length)).toEqual([PAYROLL.length / 2, 1, 1]);
     });
 
     it('keeps temp tables per session and drops them when the session closes', async () => {
