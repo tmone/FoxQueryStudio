@@ -5,7 +5,7 @@ import { columnKindResolver, columnWidthResolver } from '../../shared/column-kin
 import type { ColumnKindResolver } from '../../converter';
 import { commandForShortcut, shortcutOf, type AppCommand } from '../../shared/commands';
 import { runFoxQuery, runOnFoxPro, runTsqlQuery } from '../../shared/run-query';
-import type { ConnectionInfo, ConnectionProfile, ExecuteResult, SchemaTable } from '../../shared/types';
+import { isProcedure, type ConnectionInfo, type ConnectionProfile, type ExecuteResult, type SchemaTable } from '../../shared/types';
 import { updateActionLabel, type UpdateStatus } from '../../shared/update';
 import { queryTitle } from '../../shared/journal';
 import { prepareFoxBatch } from '../../shared/fox-prepare';
@@ -404,15 +404,15 @@ async function run(): Promise<void> {
   let source = useSelection ? tab.model.getValueInRange(selection) : tab.model.getValue();
   const lineOffset = useSelection ? selection.startLineNumber - 1 : 0;
   const notes: string[] = [];
-  if (connection.kind === 'foxpro' && tab.language === 'foxpro') {
-    // Checks are typed the way the customer writes them: phrases are asked for, the table is found
-    // among the database's tables, which may still be on their way right after the database opened.
+  if (tab.language === 'foxpro') {
+    // Checks are typed the way the customer writes them, on FoxPro and SQL Server alike: phrases are
+    // asked for, the table is found among the database's tables, which may still be on their way.
     if (connection.loading) {
       report(tab, 'Đang nạp danh sách bảng của CSDL, hãy chạy lại sau giây lát.');
       return;
     }
     await ensureLoaded(connection.id, tab.database);
-    const prepared = await prepareFoxBatch(source, { tables: lookups(tab).tables, hasWorkArea: !!(tab.currentTable || tab.currentCursor), ask: askParameter });
+    const prepared = await prepareFoxBatch(source, { tables: lookups(tab).tables.filter((t) => !isProcedure(t)), hasWorkArea: !!(tab.currentTable || tab.currentCursor), ask: askParameter });
     if (prepared.cancelled) return;
     if (prepared.error) {
       report(tab, prepared.error);

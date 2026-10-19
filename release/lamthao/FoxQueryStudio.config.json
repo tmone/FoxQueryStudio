@@ -3,29 +3,34 @@
   "openOnStart": [],
   "bookmarks": [
     {
-      "name": "Kiểm tra tiền công phép (TP)",
+      "name": "Kiểm tra lương - cả 5 lệnh",
       "language": "foxpro",
-      "sql": "* Thay bangluong bang ten bang luong cua thang, CONGCHEDO bang cot (hay so) cong che do cua don vi.\n* Ket qua 0: cong thuc dung. Khac 0: tab Thong bao dua san cau SELECT liet ke cac dong lech.\nUSE bangluong\nSUM TP-LC*HSDC*2700000*DIEMP/9.8*CP/CONGCHEDO*HSL"
+      "sql": "SUM TP-LC*HSDC*2700000*DIEMP/9.8*CP/Công chế độ*HSL\nSUM TCD-LC*HSDC*2700000*CD/26*0.35*HSTN\nSUM TTT-FTN/100*2700000*NC1/Công chế độ*HSTN\nSUM TIEN1-LC*HSDC*DIEM*NC1/Công chế độ*HS\nSUM THUONG-LC*HSDC*DIEM*(Công chế độ-CO-CTD-CDE)/Công chế độ*HSTG"
     },
     {
-      "name": "Kiểm tra tiền làm đêm (TCD)",
+      "name": "Kiểm tra TP - tiền công phép",
       "language": "foxpro",
-      "sql": "* Thay bangluong bang ten bang luong cua thang, CONGCHEDO bang cot (hay so) cong che do cua don vi.\n* Ket qua 0: cong thuc dung. Khac 0: tab Thong bao dua san cau SELECT liet ke cac dong lech.\nUSE bangluong\nSUM TCD-LC*HSDC*2700000*CD/26*0.35*HSTN"
+      "sql": "SUM TP-LC*HSDC*2700000*DIEMP/9.8*CP/Công chế độ*HSL"
     },
     {
-      "name": "Kiểm tra tiền theo FTN (TTT)",
+      "name": "Kiểm tra TCD - tiền làm đêm",
       "language": "foxpro",
-      "sql": "* Thay bangluong bang ten bang luong cua thang, CONGCHEDO bang cot (hay so) cong che do cua don vi.\n* Ket qua 0: cong thuc dung. Khac 0: tab Thong bao dua san cau SELECT liet ke cac dong lech.\nUSE bangluong\nSUM TTT-FTN/100*2700000*NC1/CONGCHEDO*HSTN"
+      "sql": "SUM TCD-LC*HSDC*2700000*CD/26*0.35*HSTN"
     },
     {
-      "name": "Kiểm tra tiền lương sản phẩm (TIEN1)",
+      "name": "Kiểm tra TTT - tiền theo FTN",
       "language": "foxpro",
-      "sql": "* Thay bangluong bang ten bang luong cua thang, CONGCHEDO bang cot (hay so) cong che do cua don vi.\n* Ket qua 0: cong thuc dung. Khac 0: tab Thong bao dua san cau SELECT liet ke cac dong lech.\nUSE bangluong\nSUM TIEN1-LC*HSDC*DIEM*NC1/CONGCHEDO*HS"
+      "sql": "SUM TTT-FTN/100*2700000*NC1/Công chế độ*HSTN"
     },
     {
-      "name": "Kiểm tra tiền lương khuyến khích (THUONG)",
+      "name": "Kiểm tra TIEN1 - tiền lương sản phẩm",
       "language": "foxpro",
-      "sql": "* Thay bangluong bang ten bang luong cua thang, CONGCHEDO bang cot (hay so) cong che do cua don vi.\n* Ket qua 0: cong thuc dung. Khac 0: tab Thong bao dua san cau SELECT liet ke cac dong lech.\nUSE bangluong\nSUM THUONG-LC*HSDC*DIEM*(CONGCHEDO-CO-CTD-CDE)/CONGCHEDO*HSTG"
+      "sql": "SUM TIEN1-LC*HSDC*DIEM*NC1/Công chế độ*HS"
+    },
+    {
+      "name": "Kiểm tra THUONG - tiền khuyến khích",
+      "language": "foxpro",
+      "sql": "SUM THUONG-LC*HSDC*DIEM*(Công chế độ-CO-CTD-CDE)/Công chế độ*HSTG"
     }
   ]
 }

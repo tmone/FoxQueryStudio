@@ -213,7 +213,7 @@ try {
   await page.click('#btn-new');
   assert.equal(await page.locator('.tab').count(), 2);
   text = await run('BROWSE');
-  assert.match(text, /Chưa có bảng hay cursor nào/);
+  assert.match(text, /Chưa có bảng hay cursor nào|Không biết chạy trên bảng nào/);
   text = await run('SELECT TOP 3 EmployeeCode FROM HCSEM_Employees ORDER BY EmployeeCode');
   expected = sqlcmd('SELECT TOP 3 EmployeeCode FROM HCSEM_Employees ORDER BY EmployeeCode');
   assert.deepEqual(await visibleRows(), expected);
@@ -256,6 +256,19 @@ try {
   assert.equal(await page.$$eval('#pane-results .grid-row', (rows) => rows.length), Math.min(dowRows, 5000));
   text = await run('COUNT');
   assert.deepEqual(await visibleRows(), [[String(dowRows)]]);
+  // A Vietnamese phrase in the command is a parameter here too; the value is asked for and remembered.
+  await page.click('#editor');
+  await page.keyboard.press('Control+A');
+  await page.keyboard.insertText('SUM NumDateOfMonth * Hệ số');
+  await page.keyboard.press('F5');
+  await page.waitForSelector('#param-dialog[open]');
+  assert.equal(await page.textContent('#param-name'), 'Hệ số');
+  await page.fill('#param-dialog input[name=value]', '2');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => /Thời gian/.test(document.getElementById('pane-messages').textContent), null, { timeout: 60_000 });
+  const [[days]] = sqlcmd('CREATE TABLE #d (DowCode nvarchar(10), BegDay datetime, EndDay datetime, NumDateOfMonth int); INSERT INTO #d EXEC dbo.mHCSLS_SpGetPayrollDow; SELECT SUM(NumDateOfMonth) * 2 FROM #d');
+  assert.deepEqual(await visibleRows(), [[String(days)]]);
+  assert.match(await messages(), /^Hệ số = 2/);
   await page.fill('#explorer-filter', '');
   step('runs a clicked procedure, rolled back, and answers a nameless xBase command on its result', `${dowRows} rows`);
 
