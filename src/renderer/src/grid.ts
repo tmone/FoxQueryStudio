@@ -17,7 +17,32 @@ function cell(text: string, width: number, className = ''): HTMLDivElement {
 }
 
 /** Renders a result set, drawing only the rows inside the viewport. */
+/** Every result set of a run, stacked top to bottom in one scrolling pane, as SSMS shows a batch. */
+export function renderGrids(host: HTMLElement, sets: ResultSet[]): void {
+  host.replaceChildren(...sets.map((set, i) => {
+    const block = document.createElement('section');
+    block.className = 'grid-block';
+    if (sets.length > 1) {
+      const caption = document.createElement('div');
+      caption.className = 'grid-caption';
+      caption.textContent = `Bảng ${i + 1}: ${set.rows.length} dòng`;
+      block.append(caption);
+    }
+    const grid = buildGrid(set);
+    // Several sets share the pane: each shows up to a dozen rows and scrolls inside, so the pane itself stays short.
+    if (sets.length > 1) grid.style.maxHeight = `${Math.max(3, Math.min(set.rows.length + 1, 13)) * ROW_HEIGHT + 18}px`;
+    block.append(grid);
+    return block;
+  }));
+  for (const grid of host.querySelectorAll<HTMLElement>('.grid')) grid.dispatchEvent(new Event('scroll'));
+}
+
 export function renderGrid(host: HTMLElement, result: ResultSet): void {
+  host.replaceChildren(buildGrid(result));
+}
+
+/** One virtualized grid: the rows exist only where the user looks. */
+function buildGrid(result: ResultSet): HTMLElement {
   const widths = result.columns.map((name, c) => {
     let chars = name.length;
     for (const row of result.rows.slice(0, WIDTH_SAMPLE_ROWS)) {
@@ -62,6 +87,5 @@ export function renderGrid(host: HTMLElement, result: ResultSet): void {
   grid.append(header, body);
   grid.addEventListener('scroll', draw, { passive: true });
   new ResizeObserver(draw).observe(grid);
-  host.replaceChildren(grid);
-  draw();
+  return grid;
 }

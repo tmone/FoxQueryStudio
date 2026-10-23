@@ -884,7 +884,18 @@ body.show-compare .column-title {
   color: var(--muted);
 }
 
-/* Virtualized result grid */
+/* Result sets stacked in the pane; each grid virtualizes its own rows */
+.grid-block + .grid-block {
+  border-top: 2px solid var(--border);
+}
+
+.grid-caption {
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--bg);
+}
+
 .grid {
   position: relative;
   height: 100%;

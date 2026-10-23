@@ -202,7 +202,8 @@ export function createExplorer(host: HTMLElement, actions: ExplorerActions) {
     if (!cursorsNode) return;
     const list = document.createElement('ul');
     for (const name of cursors) {
-      const item = leaf('cursor', 'cursor', name, name === currentCursor ? 'đang chọn' : '');
+      // "đang chọn" only means something when there is a choice: the cursor SUM/COUNT/BROWSE read when several exist.
+      const item = leaf('cursor', 'cursor', name, cursors.length > 1 && name === currentCursor ? 'đang chọn' : '');
       item.addEventListener('dblclick', () => actions.insertText(name));
       list.append(item);
     }

@@ -13,7 +13,7 @@ import { cursorNameFor, execStatement, execTemplate } from '../../shared/procedu
 import { createCompareEditor, createEditor, createModel, displayName, LANGUAGE_ID, monaco, qualifiedName, setSchema, TSQL_LANGUAGE_ID } from './editor';
 import type { Registration } from '../../shared/registry';
 import { connectionLabel, createExplorer, registrationLabel, type ExplorerConnection } from './explorer';
-import { renderGrid } from './grid';
+import { renderGrids } from './grid';
 import { createJournal } from './journal';
 import type { Bookmark } from '../../shared/journal';
 
@@ -207,8 +207,8 @@ function renderStatus(): void {
   statusCursor.title = active.currentTable ? 'Bảng làm việc của tab: SUM, COUNT, AVERAGE, CALCULATE, BROWSE chạy trên bảng này khi không nêu tên' : 'Cursor đang chọn của tab';
 
   const result = active.result;
-  const current = result?.resultSets[active.activeSet];
-  statusRows.textContent = current ? `${current.rows.length} dòng${result!.truncated ? ' (đã cắt)' : ''}` : '';
+  const total = result ? result.resultSets.reduce((n, set) => n + set.rows.length, 0) : 0;
+  statusRows.textContent = result && result.resultSets.length ? `${total} dòng${result.resultSets.length > 1 ? ` / ${result.resultSets.length} bảng` : ''}${result.truncated ? ' (đã cắt)' : ''}` : '';
   const running = active.running;
   runStatus.textContent = running ? 'Đang chạy…' : result ? (result.error ? 'Lỗi' : seconds(result.elapsedMs)) : '';
   queryState.textContent = running ? 'Đang chạy truy vấn…' : !result ? 'Chưa chạy truy vấn' : result.error ? 'Truy vấn có lỗi' : 'Truy vấn chạy xong';
@@ -341,26 +341,10 @@ function renderOutput(): void {
   panes.tsql.textContent = active.translation;
   translationTab.textContent = `${LANGUAGES[LANGUAGES[active.language].other].name} đã dịch`;
 
-  resultSetsHost.replaceChildren(
-    ...(sets.length > 1
-      ? sets.map((_, i) => {
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.textContent = `Bảng ${i + 1}`;
-          button.classList.toggle('active', i === active.activeSet);
-          button.addEventListener('click', () => {
-            active.activeSet = i;
-            active.pane = 'results';
-            renderOutput();
-          });
-          return button;
-        })
-      : []),
-  );
-
+  // No per-set tabs: every set is stacked in the results pane, the way SSMS and the FoxPro screen show a batch.
+  resultSetsHost.replaceChildren();
   exportButton.hidden = !sets.some((set) => set.rows.length);
-  const current = sets[active.activeSet];
-  if (current) renderGrid(panes.results, current);
+  if (sets.length) renderGrids(panes.results, sets);
   else panes.results.replaceChildren(placeholder('Chưa có kết quả. Viết lệnh SELECT rồi nhấn F5.'));
   showPane(active.pane);
   renderStatus();
