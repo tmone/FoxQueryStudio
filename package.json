@@ -17,7 +17,8 @@
     "e2e:real": "node test/e2e/real-server.mjs",
     "e2e:update": "node test/e2e/update.mjs",
     "release:fake": "node scripts/fake-release.mjs",
-    "release:assets": "node scripts/release-assets.mjs"
+    "release:assets": "node scripts/release-assets.mjs",
+    "build:xbase": "node scripts/build-xbase-bundle.mjs"
   },
   "dependencies": {
     "mssql": "^12.7.3"
