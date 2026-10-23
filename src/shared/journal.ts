@@ -27,6 +27,8 @@ export interface Bookmark {
   name: string;
   language: JournalLanguage;
   sql: string;
+  /** Values of the parameters (Vietnamese phrases) in the sql, so the bookmark runs without asking. */
+  params?: Record<string, string>;
   createdAt: string;
 }
 

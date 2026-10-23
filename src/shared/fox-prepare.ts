@@ -95,7 +95,8 @@ export function tableFor(source: string, tables: SchemaTable[]): TableChoice {
     const columns = new Set(t.columns.map((c) => c.name.toLowerCase()));
     return fields.every((f) => columns.has(f));
   });
-  if (matches.length === 1) return { table: matches[0].name };
+  // Outside dbo the name must carry its schema, or USE/FROM would look in the login's default schema.
+  if (matches.length === 1) return { table: matches[0].schema && matches[0].schema.toLowerCase() !== 'dbo' ? `${matches[0].schema}.${matches[0].name}` : matches[0].name };
   if (!matches.length) return { error: `Không có bảng nào có đủ các cột ${fields.join(', ')}; hãy USE bảng trước.` };
   return { error: `Nhiều bảng có đủ các cột ${fields.join(', ')}: ${matches.map((t) => t.name).join(', ')}. Hãy USE bảng muốn kiểm tra trước.` };
 }

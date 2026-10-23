@@ -1,0 +1,18 @@
+/* The web build: what only makes sense on a desktop is hidden; everything else is the desktop's own style.css. */
+.web #btn-open,
+.web #btn-save,
+.web #btn-connect,
+.web #btn-disconnect,
+.web #btn-local,
+.web .toolbar > .divider:nth-of-type(1),
+.web .toolbar > .divider:nth-of-type(2),
+.web .version-box,
+.web #btn-history-file,
+.web #connect-dialog,
+.web .explorer .connection > .actions {
+  display: none !important;
+}
+.web.no-write #btn-bookmark,
+.web.no-export #btn-export {
+  display: none !important;
+}

@@ -18,7 +18,8 @@
     "e2e:update": "node test/e2e/update.mjs",
     "release:fake": "node scripts/fake-release.mjs",
     "release:assets": "node scripts/release-assets.mjs",
-    "build:xbase": "node scripts/build-xbase-bundle.mjs"
+    "build:xbase": "node scripts/build-xbase-bundle.mjs",
+    "build:web": "vite build -c vite.web.config.ts"
   },
   "dependencies": {
     "mssql": "^12.7.3"

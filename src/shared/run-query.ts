@@ -1,5 +1,6 @@
 import { convertFoxPro, type ColumnKindResolver, type ConvertResult, type Diagnostic } from '../converter';
 import { convertTsql, type ReverseOptions, type ReverseResult } from '../converter/reverse';
+import { mismatchHint, toRunnable } from './fox-statements';
 import { splitExecSegments, tsqlViolation, withoutExecLines, type ExecSegment } from './procedures';
 import type { DbBackend, ExecuteResult } from './types';
 
@@ -131,7 +132,28 @@ export async function runFoxQuery(execute: DbBackend['execute'], session: QueryS
     return outcome;
   });
   if (!result) accept();
+  if (result && !result.error) result.messages.push(...mismatchHints(source, result, session.currentCursor ?? session.currentTable));
   return { conversion, result };
+}
+
+/**
+ * On SQL Server a `SUM stored - formula` comes back as a one-row set; when it is not 0 the message
+ * offers the query that lists the rows at fault, as the FoxPro engine does for the same check.
+ */
+function mismatchHints(source: string, result: ExecuteResult, table: string | undefined): string[] {
+  if (!table) return [];
+  const hints: string[] = [];
+  let set = 0;
+  for (const statement of toRunnable(withoutExecLines(source, '*'))) {
+    if (!statement.calc && !statement.shows) continue;
+    const rows = result.resultSets[set++];
+    if (!statement.calc || statement.calc.kind !== 'array' || !rows) continue;
+    statement.calc.labels.forEach((label, i) => {
+      const hint = mismatchHint(label, rows.rows[0]?.[i], table, statement.calc?.condition);
+      if (hint) hints.push(hint);
+    });
+  }
+  return hints;
 }
 
 export interface TsqlOutcome {

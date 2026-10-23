@@ -8,7 +8,7 @@ import { runFoxQuery, runOnFoxPro, runTsqlQuery } from '../../shared/run-query';
 import { isProcedure, type ConnectionInfo, type ConnectionProfile, type ExecuteResult, type SchemaTable } from '../../shared/types';
 import { updateActionLabel, type UpdateStatus } from '../../shared/update';
 import { queryTitle } from '../../shared/journal';
-import { prepareFoxBatch } from '../../shared/fox-prepare';
+import { findParameters, prepareFoxBatch } from '../../shared/fox-prepare';
 import { cursorNameFor, execStatement, execTemplate } from '../../shared/procedures';
 import { createCompareEditor, createEditor, createModel, displayName, LANGUAGE_ID, monaco, qualifiedName, setSchema, TSQL_LANGUAGE_ID } from './editor';
 import type { Registration } from '../../shared/registry';
@@ -59,6 +59,8 @@ interface Tab {
   hasOutput: boolean;
   /** True while the tab's query is on its way; other tabs are free to run meanwhile. */
   running: boolean;
+  /** Parameter values the bookmark that opened the tab carries; they are used without asking. */
+  params?: Record<string, string>;
 }
 
 /** The objects of one database and the column lookups the converters need for it. */
@@ -412,7 +414,7 @@ async function run(): Promise<void> {
       return;
     }
     await ensureLoaded(connection.id, tab.database);
-    const prepared = await prepareFoxBatch(source, { tables: lookups(tab).tables.filter((t) => !isProcedure(t)), hasWorkArea: !!(tab.currentTable || tab.currentCursor), ask: askParameter });
+    const prepared = await prepareFoxBatch(source, { tables: lookups(tab).tables.filter((t) => !isProcedure(t)), hasWorkArea: !!(tab.currentTable || tab.currentCursor), ask: askOrPreset });
     if (prepared.cancelled) return;
     if (prepared.error) {
       report(tab, prepared.error);
@@ -1062,9 +1064,19 @@ function showSide(name: SideName): void {
 }
 
 /** Opens a journal entry in a new tab, on the connection it ran on when that one is still open. */
-function openFromJournal(sql: string, language: QueryLanguage, connection?: string, database?: string, runIt = false): void {
-  const target = connection ? connections.find((c) => connectionLabel(c) === connection) : undefined;
-  newTab(sql, undefined, language, target?.id ?? currentConnectionId, target ? database : currentDatabase);
+function openFromJournal(sql: string, language: QueryLanguage, connection?: string, database?: string, runIt = false, params?: Record<string, string>, inPlace = false): void {
+  if (inPlace) {
+    // Into the current tab, keeping its connection, cursors and work area; the text is replaced as one undo step.
+    active.model.pushEditOperations([], [{ range: active.model.getFullModelRange(), text: sql }], () => null);
+    active.model.pushStackElement();
+    if (active.language !== language) switchLanguage();
+  } else {
+    const target = connection ? connections.find((c) => connectionLabel(c) === connection) : undefined;
+    newTab(sql, undefined, language, target?.id ?? currentConnectionId, target ? database : currentDatabase);
+  }
+  // A bookmark's values stay with its tab: every run of that tab uses them without asking.
+  active.params = params;
+  if (params) for (const [name, value] of Object.entries(params)) rememberParameter(name, value);
   if (runIt) void run();
 }
 
@@ -1083,6 +1095,12 @@ function askBookmarkName(title: string, sql: string, initial = ''): Promise<stri
     bookmarkDialog.showModal();
     input.select();
   });
+}
+
+/** The tab's bookmark value when it has one, else the dialog. */
+function askOrPreset(name: string): Promise<string | undefined> {
+  const preset = active.params?.[name];
+  return preset ? Promise.resolve(preset) : askParameter(name);
 }
 
 /** Asks for a parameter's value, offering the one given last time; resolves undefined when cancelled. */
@@ -1110,7 +1128,13 @@ async function saveBookmark(sql: string, language: QueryLanguage, existing?: Boo
   }
   const name = await askBookmarkName(existing ? 'Đổi tên dấu trang' : 'Lưu dấu trang', sql, existing?.name ?? queryTitle(sql, 60));
   if (!name) return;
-  await window.journal.saveBookmark({ id: existing?.id, name, language, sql });
+  // The values last given for the sql's parameters are kept with the bookmark, so it runs without asking.
+  const params: Record<string, string> = {};
+  for (const phrase of findParameters(sql)) {
+    const value = existing?.params?.[phrase] ?? parameterValues.get(phrase.toLowerCase());
+    if (value) params[phrase] = value;
+  }
+  await window.journal.saveBookmark({ id: existing?.id, name, language, sql, params });
   showSide('bookmarks');
 }
 
@@ -1121,7 +1145,7 @@ function activeSource(): string {
 }
 
 const journal = createJournal({
-  open: (sql, language, connection, database, runIt) => openFromJournal(sql, language, connection, database, runIt),
+  open: (sql, language, connection, database, runIt, params, inPlace) => openFromJournal(sql, language, connection, database, runIt, params, inPlace),
   bookmark: (sql, language) => void saveBookmark(sql, language),
   rename: (bookmark) => void saveBookmark(bookmark.sql, bookmark.language, bookmark),
   removeBookmark: (id) => void window.journal.removeBookmark(id).then(() => journal.refreshBookmarks()),
