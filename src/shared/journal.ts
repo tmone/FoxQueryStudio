@@ -29,6 +29,8 @@ export interface Bookmark {
   sql: string;
   /** Values of the parameters (Vietnamese phrases) in the sql, so the bookmark runs without asking. */
   params?: Record<string, string>;
+  /** The procedure (schema.name) whose result the sql reads; run first when the tab has no work area. */
+  procedure?: string;
   createdAt: string;
 }
 

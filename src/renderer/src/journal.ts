@@ -4,7 +4,7 @@ import { icon, showContextMenu } from './widgets';
 /** What the lists ask the window to do with an entry. */
 export interface JournalActions {
   /** Opens the SQL in a new tab (on the connection named, when it is still open) and runs it when asked. */
-  open(sql: string, language: HistoryEntry['language'], connection?: string, database?: string, run?: boolean, params?: Record<string, string>, inPlace?: boolean): void;
+  open(sql: string, language: HistoryEntry['language'], connection?: string, database?: string, run?: boolean, params?: Record<string, string>, inPlace?: boolean, procedure?: string): void;
   /** Asks for a name and keeps the SQL as a bookmark. */
   bookmark(sql: string, language: HistoryEntry['language']): void;
   rename(bookmark: Bookmark): void;
@@ -83,11 +83,11 @@ export function createJournal(actions: JournalActions) {
     head.className = 'head';
     head.append(icon('bookmark'), line('name', bookmark.name), line('outcome', bookmark.language === 'tsql' ? 'T-SQL' : 'FOX-SQL'));
     item.append(head, line('sql', queryTitle(bookmark.sql)));
-    const paramLines = bookmark.params ? Object.entries(bookmark.params).map(([k, v]) => `${k} = ${v}`) : [];
+    const paramLines = [...(bookmark.procedure ? [`Thủ tục: ${bookmark.procedure}`] : []), ...(bookmark.params ? Object.entries(bookmark.params).map(([k, v]) => `${k} = ${v}`) : [])];
     item.title = paramLines.length ? [bookmark.sql, ...paramLines].join('\n') : bookmark.sql;
     // The bookmark's own parameter values go with it, so running it asks nothing.
     // "Chạy" runs the bookmark in the current tab, on its work area (the procedure's cursor); a new tab has none.
-    const open = (run: boolean) => actions.open(bookmark.sql, bookmark.language, undefined, undefined, run, bookmark.params, run);
+    const open = (run: boolean) => actions.open(bookmark.sql, bookmark.language, undefined, undefined, run, bookmark.params, run, bookmark.procedure);
     item.addEventListener('dblclick', () => open(false));
     item.addEventListener('keydown', (e) => e.key === 'Enter' && open(false));
     item.addEventListener('contextmenu', (event) =>

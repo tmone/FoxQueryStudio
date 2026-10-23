@@ -41,6 +41,12 @@ export interface SchemaParameter {
   /** With its @, as it is passed. */
   name: string;
   display: string;
+  /** What the user is asked with instead of the name, when the host knows one (e.g. "Kỳ lương"). */
+  label?: string;
+  /** Placeholder of the value box, e.g. "ví dụ 2025/09". */
+  example?: string;
+  /** Suggested value when none was given before, e.g. the latest payroll period. */
+  defaultValue?: string;
 }
 
 export interface SchemaTable {

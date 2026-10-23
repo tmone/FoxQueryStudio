@@ -82,7 +82,7 @@ export const listBookmarks = (): Bookmark[] => readBookmarks().sort((a, b) => a.
 export function saveBookmark(bookmark: Omit<Bookmark, 'id' | 'createdAt'> & { id?: string }): Bookmark {
   const bookmarks = readBookmarks();
   const existing = bookmark.id ? bookmarks.find((b) => b.id === bookmark.id) : undefined;
-  const saved: Bookmark = { id: existing?.id ?? randomUUID(), createdAt: existing?.createdAt ?? new Date().toISOString(), name: bookmark.name.trim(), language: bookmark.language, sql: bookmark.sql, params: bookmark.params };
+  const saved: Bookmark = { id: existing?.id ?? randomUUID(), createdAt: existing?.createdAt ?? new Date().toISOString(), name: bookmark.name.trim(), language: bookmark.language, sql: bookmark.sql, params: bookmark.params, procedure: bookmark.procedure };
   if (!saved.name) throw new Error('Dấu trang cần có tên.');
   writeBookmarks([...bookmarks.filter((b) => b.id !== saved.id), saved]);
   return saved;

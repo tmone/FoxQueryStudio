@@ -132,28 +132,31 @@ export async function runFoxQuery(execute: DbBackend['execute'], session: QueryS
     return outcome;
   });
   if (!result) accept();
-  if (result && !result.error) result.messages.push(...mismatchHints(source, result, session.currentCursor ?? session.currentTable));
+  if (result && !result.error) result.messages.push(...calcMessages(source, result, session.currentCursor ?? session.currentTable));
   return { conversion, result };
 }
 
 /**
- * On SQL Server a `SUM stored - formula` comes back as a one-row set; when it is not 0 the message
- * offers the query that lists the rows at fault, as the FoxPro engine does for the same check.
+ * On SQL Server each SUM/COUNT comes back as a one-row set, so the messages spell every figure out
+ * (five checks in a batch are read in one place) and, for a `SUM stored - formula` that is not 0,
+ * offer the query listing the rows at fault, as the FoxPro engine does for the same check.
  */
-function mismatchHints(source: string, result: ExecuteResult, table: string | undefined): string[] {
-  if (!table) return [];
-  const hints: string[] = [];
+function calcMessages(source: string, result: ExecuteResult, table: string | undefined): string[] {
+  const lines: string[] = [];
   let set = 0;
   for (const statement of toRunnable(withoutExecLines(source, '*'))) {
     if (!statement.calc && !statement.shows) continue;
     const rows = result.resultSets[set++];
-    if (!statement.calc || statement.calc.kind !== 'array' || !rows) continue;
+    if (!statement.calc || !rows) continue;
+    const forPart = statement.calc.condition ? ` (FOR ${statement.calc.condition})` : '';
     statement.calc.labels.forEach((label, i) => {
-      const hint = mismatchHint(label, rows.rows[0]?.[i], table, statement.calc?.condition);
-      if (hint) hints.push(hint);
+      const value = rows.rows[0]?.[i];
+      const shown = value === null || value === undefined ? 'NULL (có ô trống trong các cột của công thức)' : String(value);
+      const hint = table ? mismatchHint(label, value, table, statement.calc?.condition) : undefined;
+      lines.push(hint ?? `${label}${forPart} = ${shown}`);
     });
   }
-  return hints;
+  return lines;
 }
 
 export interface TsqlOutcome {

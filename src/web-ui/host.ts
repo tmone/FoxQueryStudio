@@ -40,7 +40,7 @@ interface ServerObject {
   Schema: string;
   ObjectName: string;
   Type: string;
-  Parameters?: { Name: string; Type: string }[];
+  Parameters?: { Name: string; Type: string; Label?: string | null; Example?: string | null; Default?: string | null }[];
   Columns?: { Name: string; Type: string }[];
 }
 interface ServerBookmark {
@@ -99,7 +99,7 @@ const db: DbApi = {
     const data = (await host().call('GetObjects', {})) as { Objects?: ServerObject[] };
     return (data.Objects ?? []).map<SchemaTable>((o) =>
       o.Type === 'P'
-        ? { schema: o.Schema, name: o.ObjectName, isView: false, columns: [], kind: 'procedure', parameters: (o.Parameters ?? []).map((p) => ({ name: p.Name, display: p.Type })) }
+        ? { schema: o.Schema, name: o.ObjectName, isView: false, columns: [], kind: 'procedure', parameters: (o.Parameters ?? []).map((p) => ({ name: p.Name, display: p.Type, label: p.Label || undefined, example: p.Example || undefined, defaultValue: p.Default || undefined })) }
         : { schema: o.Schema, name: o.ObjectName, isView: o.Type === 'V', columns: (o.Columns ?? []).map((c) => ({ name: c.Name, dataType: c.Type, maxLength: null, nullable: true })), keys: [], indexes: [] },
     );
   },
@@ -138,17 +138,22 @@ function writeHistory(entries: HistoryEntry[]): void {
   }
 }
 
-function parseParams(json: string | null | undefined): Record<string, string> | undefined {
-  if (!json) return undefined;
+/** The server keeps one JSON per bookmark: parameter values, plus the procedure under "$procedure". */
+const PROCEDURE_KEY = '$procedure';
+function parseParams(json: string | null | undefined): { params?: Record<string, string>; procedure?: string } {
+  if (!json) return {};
   try {
     const parsed = JSON.parse(json) as Record<string, unknown>;
-    return Object.fromEntries(Object.entries(parsed).map(([k, v]) => [k, String(v)]));
+    const procedure = parsed[PROCEDURE_KEY] ? String(parsed[PROCEDURE_KEY]) : undefined;
+    const params = Object.fromEntries(Object.entries(parsed).filter(([k]) => k !== PROCEDURE_KEY).map(([k, v]) => [k, String(v)]));
+    return { params: Object.keys(params).length ? params : undefined, procedure };
   } catch {
-    return undefined;
+    return {};
   }
 }
+const paramsJson = (bookmark: { params?: Record<string, string>; procedure?: string }) => JSON.stringify({ ...(bookmark.params ?? {}), ...(bookmark.procedure ? { [PROCEDURE_KEY]: bookmark.procedure } : {}) });
 
-const toBookmark = (b: ServerBookmark): Bookmark => ({ id: b.RecID, name: b.Name, language: b.Language === 'tsql' ? 'tsql' : 'foxpro', sql: b.Sql, params: parseParams(b.Params), createdAt: '' });
+const toBookmark = (b: ServerBookmark): Bookmark => ({ id: b.RecID, name: b.Name, language: b.Language === 'tsql' ? 'tsql' : 'foxpro', sql: b.Sql, ...parseParams(b.Params), createdAt: '' });
 
 const journal: JournalApi = {
   history: async (filter?: HistoryFilter) => {
@@ -164,8 +169,8 @@ const journal: JournalApi = {
   historyPath: async () => 'localStorage',
   bookmarks: async () => ((await host().call('GetBookmarks', {})) as ServerBookmark[]).map(toBookmark),
   saveBookmark: async (bookmark) => {
-    const data = (await host().call('SaveBookmark', { BookmarkID: bookmark.id ?? '', Name: bookmark.name, Sql: bookmark.sql, QueryLanguage: bookmark.language, ParamsJson: JSON.stringify(bookmark.params ?? {}) })) as { RecID: string };
-    return { id: data.RecID, name: bookmark.name, language: bookmark.language, sql: bookmark.sql, params: bookmark.params, createdAt: new Date().toISOString() };
+    const data = (await host().call('SaveBookmark', { BookmarkID: bookmark.id ?? '', Name: bookmark.name, Sql: bookmark.sql, QueryLanguage: bookmark.language, ParamsJson: paramsJson(bookmark) })) as { RecID: string };
+    return { id: data.RecID, name: bookmark.name, language: bookmark.language, sql: bookmark.sql, params: bookmark.params, procedure: bookmark.procedure, createdAt: new Date().toISOString() };
   },
   removeBookmark: async (id) => {
     await host().call('DeleteBookmark', { BookmarkID: id });

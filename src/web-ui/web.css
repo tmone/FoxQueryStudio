@@ -9,9 +9,11 @@
 .web .version-box,
 .web #btn-history-file,
 .web #connect-dialog,
-.web .explorer .connection > .actions {
+.web .explorer .connection > .actions,
+.web #statusbar {
   display: none !important;
 }
+
 .web.no-write #btn-bookmark,
 .web.no-export #btn-export {
   display: none !important;

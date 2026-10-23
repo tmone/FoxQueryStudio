@@ -61,6 +61,8 @@ interface Tab {
   running: boolean;
   /** Parameter values the bookmark that opened the tab carries; they are used without asking. */
   params?: Record<string, string>;
+  /** The procedure whose result is the tab's cursor, kept so a bookmark saved from it can rebuild that cursor. */
+  procedure?: string;
 }
 
 /** The objects of one database and the column lookups the converters need for it. */
@@ -414,6 +416,14 @@ async function run(): Promise<void> {
       return;
     }
     await ensureLoaded(connection.id, tab.database);
+    if (!tab.currentCursor && !tab.currentTable && tab.procedure) {
+      // A bookmark saved on a procedure's result: run that procedure first (its values are asked for or come with the bookmark).
+      const procedure = lookups(tab).tables.find((t) => isProcedure(t) && displayName(t) === tab.procedure);
+      if (procedure) {
+        await useProcedure(connection.id, tab.database!, procedure);
+        if (!tab.currentCursor) return;
+      }
+    }
     const prepared = await prepareFoxBatch(source, { tables: lookups(tab).tables.filter((t) => !isProcedure(t)), hasWorkArea: !!(tab.currentTable || tab.currentCursor), ask: askOrPreset });
     if (prepared.cancelled) return;
     if (prepared.error) {
@@ -538,7 +548,8 @@ async function useProcedure(connectionId: string, database: string, procedure: S
   if (!connection) return;
   const values: { name: string; value: string }[] = [];
   for (const parameter of procedure.parameters ?? []) {
-    const value = await askParameter(`${parameter.name} (${parameter.display})`, `${procedure.name}.${parameter.name}`);
+    // The label and example come with the schema (the HRM web keeps them in HCSPR_XBaseParam); plain SQL Server has none.
+    const value = tab.params?.[parameter.name] ?? (await askParameter(parameter.label ?? `${parameter.name} (${parameter.display})`, `${procedure.name}.${parameter.name}`, parameter.example, parameter.defaultValue));
     if (value === undefined) return;
     values.push({ name: parameter.name, value });
   }
@@ -560,7 +571,10 @@ async function useProcedure(connectionId: string, database: string, procedure: S
     tab.cursors = [...new Set([...tab.cursors, cursor])];
     tab.currentCursor = cursor;
     tab.currentTable = undefined;
-    lines.push(`Kết quả là bảng làm việc "${cursor}": gõ SUM, COUNT, BROWSE FOR … hoặc SELECT … FROM ${cursor} rồi nhấn F5.`);
+    tab.procedure = displayName(procedure);
+    const first = result.resultSets[0];
+    if (!first || !first.rows.length) lines.push(`Thủ tục không trả về dòng nào với giá trị đã nhập (${values.map((v) => `${v.name} = ${v.value}`).join(', ')}): kiểm tra lại kỳ lương hoặc tham số.`);
+    else lines.push(`Kết quả là bảng làm việc "${cursor}": gõ SUM, COUNT, BROWSE FOR … hoặc SELECT … FROM ${cursor} rồi nhấn F5.`);
   }
   finishRun(tab, connection, `${statement} INTO CURSOR ${cursor}`, result, [], lines);
 }
@@ -1064,7 +1078,7 @@ function showSide(name: SideName): void {
 }
 
 /** Opens a journal entry in a new tab, on the connection it ran on when that one is still open. */
-function openFromJournal(sql: string, language: QueryLanguage, connection?: string, database?: string, runIt = false, params?: Record<string, string>, inPlace = false): void {
+function openFromJournal(sql: string, language: QueryLanguage, connection?: string, database?: string, runIt = false, params?: Record<string, string>, inPlace = false, procedure?: string): void {
   if (inPlace) {
     // Into the current tab, keeping its connection, cursors and work area; the text is replaced as one undo step.
     active.model.pushEditOperations([], [{ range: active.model.getFullModelRange(), text: sql }], () => null);
@@ -1076,6 +1090,7 @@ function openFromJournal(sql: string, language: QueryLanguage, connection?: stri
   }
   // A bookmark's values stay with its tab: every run of that tab uses them without asking.
   active.params = params;
+  if (procedure && !active.currentCursor) active.procedure = procedure;
   if (params) for (const [name, value] of Object.entries(params)) rememberParameter(name, value);
   if (runIt) void run();
 }
@@ -1104,11 +1119,12 @@ function askOrPreset(name: string): Promise<string | undefined> {
 }
 
 /** Asks for a parameter's value, offering the one given last time; resolves undefined when cancelled. */
-function askParameter(name: string, key = name): Promise<string | undefined> {
+function askParameter(name: string, key = name, example?: string, defaultValue?: string): Promise<string | undefined> {
   return new Promise((resolve) => {
     paramName.textContent = name;
     const input = paramForm.elements.namedItem('value') as HTMLInputElement;
-    input.value = parameterValues.get(key.toLowerCase()) ?? '';
+    input.placeholder = example ?? 'số, hoặc tên cột / biểu thức FoxPro';
+    input.value = parameterValues.get(key.toLowerCase()) ?? defaultValue ?? '';
     const done = () => {
       paramDialog.removeEventListener('close', done);
       const value = paramDialog.returnValue === 'run' ? input.value.trim() : '';
@@ -1134,7 +1150,8 @@ async function saveBookmark(sql: string, language: QueryLanguage, existing?: Boo
     const value = existing?.params?.[phrase] ?? parameterValues.get(phrase.toLowerCase());
     if (value) params[phrase] = value;
   }
-  await window.journal.saveBookmark({ id: existing?.id, name, language, sql, params });
+  const procedure = active.currentCursor ? active.procedure : existing?.procedure;
+  await window.journal.saveBookmark({ id: existing?.id, name, language, sql, params, procedure });
   showSide('bookmarks');
 }
 
@@ -1145,7 +1162,7 @@ function activeSource(): string {
 }
 
 const journal = createJournal({
-  open: (sql, language, connection, database, runIt, params, inPlace) => openFromJournal(sql, language, connection, database, runIt, params, inPlace),
+  open: (sql, language, connection, database, runIt, params, inPlace, procedure) => openFromJournal(sql, language, connection, database, runIt, params, inPlace, procedure),
   bookmark: (sql, language) => void saveBookmark(sql, language),
   rename: (bookmark) => void saveBookmark(bookmark.sql, bookmark.language, bookmark),
   removeBookmark: (id) => void window.journal.removeBookmark(id).then(() => journal.refreshBookmarks()),
